@@ -1,0 +1,61 @@
+# Build outputs
+build/
+iso/
+*.iso
+*.elf
+*.so
+*.a
+
+# Object files
+*.o
+*.obj
+
+# Debug files
+*.d
+*.map
+*.sym
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.*.swp
+.*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Cross-compilation tools (if locally installed)
+cross-compiler/
+toolchain/
+
+# QEMU files
+*.qcow2
+*.img
+
+# Test outputs
+test_results/
+coverage/
+
+# Documentation build
+docs/_build/
+docs/html/
+docs/latex/
+
+# Backup files
+*.bak
+*.backup
+*~
