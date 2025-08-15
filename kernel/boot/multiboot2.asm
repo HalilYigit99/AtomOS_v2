@@ -7,6 +7,20 @@ multiboot2_header:
     dd -(0xe85250d6 + 0 + (multiboot2_header_end - multiboot2_header))  ; Checksum
 
     align 8
+    ; Bilgi Talep Etiketi (Information Request Tag)
+    ; Bu etiket ile önyükleyiciden hangi bilgileri istediğimizi belirtiriz.
+request_tag_start:
+    dw 1      ; type = MULTIBOOT_HEADER_TAG_INFORMATION_REQUEST
+    dw 0      ; flags = 0
+    dd request_tag_end - request_tag_start   ; size
+
+    dd 17     ; MULTIBOOT_TAG_EFI_MEMORY_MAP (0x00000011)
+    dd 6      ; MULTIBOOT_TAG_TYPE_MMAP       (0x00000006)
+    dd 4      ; MULTIBOOT_TAG_TYPE_BASIC_MEMINFO  (0x00000004)
+request_tag_end:
+
+
+    align 8
     .video_tag:
         dw 5        ; Type (framebuffer tag)
         dw 0        ; Flags

@@ -86,6 +86,9 @@ __ucmpdi2:
 .greater:
 	mov eax, 1
 	ret
+.less:
+	mov eax, -1
+	ret
 ; uint64_t __ashldi3(uint64_t value, unsigned int shift)  (arithmetic/logical left)
 ; ---------------------------------------------------------------------------
 global __ashldi3
@@ -105,13 +108,10 @@ __ashldi3:
 	ret
 .ge32:
 	; shift >=32 && <64
-	; eax,edx already loaded
-	mov ebx, ecx
-	sub ebx, 32
-	mov edx, eax
-	xor eax, eax
-	shl edx, bl
-.ret_ge32:
+	sub ecx, 32            ; ecx = shift-32
+	mov edx, eax            ; new high = old low << (shift-32)
+	xor eax, eax            ; new low cleared (will remain 0 or bits if shift<64)
+	shl edx, cl
 	pop ebx
 	ret
 .zero:
@@ -139,13 +139,11 @@ __lshrdi3:
 	pop ebx
 	ret
 .ge32lr:
-	; edx already loaded
-	mov ebx, ecx
-	sub ebx, 32
-	mov eax, edx
-	xor edx, edx
-	shr eax, bl
-.ret_ge32lr:
+	; shift >=32 && <64
+	sub ecx, 32            ; ecx = shift-32
+	mov eax, edx            ; new low = old high >> (shift-32)
+	xor edx, edx            ; new high = 0
+	shr eax, cl
 	pop ebx
 	ret
 .zr:
@@ -173,14 +171,11 @@ __ashrdi3:
 	pop ebx
 	ret
 .ge32ar:
-	; edx already loaded
-	mov ebx, ecx
-	sub ebx, 32
-	sar edx, 31        ; fill with sign
-	; eax currently low part, but for shift>=32 result high becomes sign fill
-	mov eax, edx
-	sar eax, bl
-.ret_ge32ar:
+	; shift >=32 && <64
+	sub ecx, 32            ; ecx = shift-32
+	mov eax, edx            ; new low = old high >> (shift-32) arith
+	sar eax, cl
+	sar edx, 31            ; new high = sign bits
 	pop ebx
 	ret
 .signfull:
@@ -229,7 +224,7 @@ __udivdi3:
 	ret
 
 .udiv_64_64:
-	; Tam bit kaydırmalı algoritma (bölüm 32-bit'e sığar çünkü d_hi!=0)
+	; Yavaş fakat basit bit-kaydırmalı 64/64 unsigned bölme (d_hi != 0).
 	; Stack: ret, n_lo, n_hi, d_lo, d_hi
 	push ebp
 	push ebx
@@ -486,7 +481,92 @@ __moddi3:
 	ret
 
 ; ---------------------------------------------------------------------------
-; NOT: Bölme / mod için bit-tabanlı algoritma doğru fakat yavaştır. Daha hızlı
-; ihtiyaç halinde Knuth (D) normalizasyonlu 64/64 -> 32/32 yaklaşımı eklenebilir.
-; Şu an tüm kombinasyonlar (unsigned/signed) destekleniyor.
+; uint64_t __muldi3(uint64_t a, uint64_t b)
+; Karşılık: (a_low + 2^32 a_high) * (b_low + 2^32 b_high)
+; Sonuç 128-bit; alt 64-bit döner.
+; ---------------------------------------------------------------------------
+global __muldi3
+__muldi3:
+	; Stack: ret, a_lo, a_hi, b_lo, b_hi
+	mov eax, [esp+4]      ; a0
+	mov ecx, [esp+12]     ; b0
+	mul ecx               ; p0 = a0*b0  -> EDX:EAX
+	mov esi, eax          ; p0_low32
+	mov edi, edx          ; p0_high32
+	; p1 = a0*b1
+	mov eax, [esp+4]      ; a0
+	mov ecx, [esp+16]     ; b1
+	mul ecx               ; EDX:EAX = p1
+	mov ebx, eax          ; p1_low32
+	mov ebp, edx          ; p1_high32
+	; p2 = a1*b0
+	mov eax, [esp+8]      ; a1
+	mov ecx, [esp+12]     ; b0
+	mul ecx               ; EDX:EAX = p2
+	add ebx, eax          ; cross_low32 = p1_low32 + p2_low32
+	adc ebp, edx          ; cross_high32 = p1_high32 + p2_high32 + carry
+	; result_low = p0_low32
+	; result_high = p0_high32 + cross_low32 (mod 2^32)
+	add edi, ebx
+	; ignore overflow beyond 64 bits
+	mov eax, esi
+	mov edx, edi
+	ret
+
+; ---------------------------------------------------------------------------
+; int64_t __negdi2(int64_t a)  => -a
+; ---------------------------------------------------------------------------
+global __negdi2
+__negdi2:
+	mov eax, [esp+4]
+	mov edx, [esp+8]
+	neg eax
+	adc edx, 0
+	neg edx
+	ret
+
+; ---------------------------------------------------------------------------
+; Kombine bölüm+kalan: (signed) __divmoddi4(int64_t a, int64_t b, int64_t *rem)
+; GCC bazen çağırabilir. Dönüş: quotient, *rem = remainder.
+; Arg layout (cdecl): a_lo,a_hi,b_lo,b_hi, rem_ptr
+; ---------------------------------------------------------------------------
+global __divmoddi4
+__divmoddi4:
+	; Stack on entry: ret, a_lo, a_hi, b_lo, b_hi, rem_ptr
+	push ebx
+	push esi
+	push edi
+	; rem_ptr = [esp + 16 + 4] after pushes (ret + 3 pushes + original args)
+	mov edi, [esp+16+4]
+	; Prepare and call __divdi3(a,b)
+	push dword [esp+12+4]    ; b_hi
+	push dword [esp+12+4]    ; b_lo
+	push dword [esp+12+4]    ; a_hi
+	push dword [esp+12+4]    ; a_lo
+	call __divdi3
+	add esp,16
+	; Save quotient in (esi:ebx)
+	mov esi, eax
+	mov ebx, edx
+	; Prepare and call __moddi3(a,b)
+	push dword [esp+12+4]    ; b_hi
+	push dword [esp+12+4]    ; b_lo
+	push dword [esp+12+4]    ; a_hi
+	push dword [esp+12+4]    ; a_lo
+	call __moddi3
+	add esp,16
+	; Store remainder
+	mov [edi], eax
+	mov [edi+4], edx
+	; Restore quotient
+	mov eax, esi
+	mov edx, ebx
+	pop edi
+	pop esi
+	pop ebx
+	ret
+
+; ---------------------------------------------------------------------------
+; NOT: Bölme / mod yavaş (bit döngülü) fakat doğruluk önceliklidir. Gerekirse
+; ileride normalizasyonlu (Knuth) daha hızlı algoritma eklenebilir.
 

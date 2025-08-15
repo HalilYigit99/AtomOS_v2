@@ -5,6 +5,10 @@ extern mb2_signature
 extern mb2_tagptr
 
 extern gdtr_amd64
+extern idt_init
+extern idt_ptr
+extern __boot_kernel_start
+extern detect_erms
 
 _start:
 
@@ -28,5 +32,19 @@ _start:
     mov gs, ax
     mov ss, ax
 
-    hlt ; Halt the CPU
+    ; Initialize IDT (64-bit)
+    call idt_init
 
+    lidt [idt_ptr] ; Load IDT pointer
+
+    ; Detect CPU features (ERMS) after segmentation set up
+    call detect_erms
+
+    ; Artık paging aktif; kernel girişine devam
+    call __boot_kernel_start ; Call the boot kernel start function
+
+    sti
+
+.halt:
+    hlt ; Halt the CPU
+    jmp .halt ; Loop indefinitely

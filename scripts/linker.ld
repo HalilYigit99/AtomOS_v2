@@ -76,7 +76,8 @@ SECTIONS
         *(.comment)
         *(.note)
         *(.note.*)
-        *(.eh_frame)
-        *(.eh_frame_hdr)
+        /* Debug/backtrace için .eh_frame ve .eh_frame_hdr TUTULUYOR */
     }
+        /* Debug/backtrace için .eh_frame ve .eh_frame_hdr TUTULUYOR */
+        /* .eh_frame ve .eh_frame_hdr bölümleri gereksiz olarak atılmaktadır */
 }

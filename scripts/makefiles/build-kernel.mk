@@ -12,12 +12,12 @@ KERNEL_ARCH_INDEP_ASM_SOURCES = $(call find_asm_sources,$(KERNEL_DIR))
 KERNEL_ARCH_INDEP_C_SOURCES := $(filter-out $(KERNEL_DIR)/i386/% $(KERNEL_DIR)/amd64/%,$(KERNEL_ARCH_INDEP_C_SOURCES))
 KERNEL_ARCH_INDEP_ASM_SOURCES := $(filter-out $(KERNEL_DIR)/i386/% $(KERNEL_DIR)/amd64/%,$(KERNEL_ARCH_INDEP_ASM_SOURCES))
 
-# Object file generation for architecture-independent code
-KERNEL_X86_C_OBJECTS = $(patsubst $(KERNEL_DIR)/%.c,$(BUILD_KERNEL_X86)/%.o,$(KERNEL_ARCH_INDEP_C_SOURCES))
-KERNEL_X86_ASM_OBJECTS = $(patsubst $(KERNEL_DIR)/%.asm,$(BUILD_KERNEL_X86)/%.o,$(KERNEL_ARCH_INDEP_ASM_SOURCES))
+# Object file generation for architecture-independent code (uzantıyı koru)
+KERNEL_X86_C_OBJECTS = $(patsubst $(KERNEL_DIR)/%.c,$(BUILD_KERNEL_X86)/%.c.o,$(KERNEL_ARCH_INDEP_C_SOURCES))
+KERNEL_X86_ASM_OBJECTS = $(patsubst $(KERNEL_DIR)/%.asm,$(BUILD_KERNEL_X86)/%.asm.o,$(KERNEL_ARCH_INDEP_ASM_SOURCES))
 
-KERNEL_X86_64_C_OBJECTS = $(patsubst $(KERNEL_DIR)/%.c,$(BUILD_KERNEL_X86_64)/%.o,$(KERNEL_ARCH_INDEP_C_SOURCES))
-KERNEL_X86_64_ASM_OBJECTS = $(patsubst $(KERNEL_DIR)/%.asm,$(BUILD_KERNEL_X86_64)/%.o,$(KERNEL_ARCH_INDEP_ASM_SOURCES))
+KERNEL_X86_64_C_OBJECTS = $(patsubst $(KERNEL_DIR)/%.c,$(BUILD_KERNEL_X86_64)/%.c.o,$(KERNEL_ARCH_INDEP_C_SOURCES))
+KERNEL_X86_64_ASM_OBJECTS = $(patsubst $(KERNEL_DIR)/%.asm,$(BUILD_KERNEL_X86_64)/%.asm.o,$(KERNEL_ARCH_INDEP_ASM_SOURCES))
 
 .PHONY: kernel32 kernel64 verify-toolchain
 
@@ -33,26 +33,26 @@ verify-toolchain:
 $(BUILD_KERNEL_X86) $(BUILD_KERNEL_X86_64) $(BUILD_X86) $(BUILD_X86_64):
 	$(call create_build_dirs)
 
-# Pattern rules for architecture-independent C files (32-bit)
-$(BUILD_KERNEL_X86)/%.o: $(KERNEL_DIR)/%.c | $(BUILD_KERNEL_X86)
+# Pattern rules for architecture-independent C files (32-bit, %.c.o)
+$(BUILD_KERNEL_X86)/%.c.o: $(KERNEL_DIR)/%.c | $(BUILD_KERNEL_X86)
 	@mkdir -p $(dir $@)
 	$(call log_build,Compiling $< for 32-bit)
 	@$(CC_32) $(CFLAGS_32) -c $< -o $@
 
-# Pattern rules for architecture-independent ASM files (32-bit)
-$(BUILD_KERNEL_X86)/%.o: $(KERNEL_DIR)/%.asm | $(BUILD_KERNEL_X86)
+# Pattern rules for architecture-independent ASM files (32-bit, %.asm.o)
+$(BUILD_KERNEL_X86)/%.asm.o: $(KERNEL_DIR)/%.asm | $(BUILD_KERNEL_X86)
 	@mkdir -p $(dir $@)
 	$(call log_build,Assembling $< for 32-bit)
 	@$(AS) $(NASMFLAGS_32) $< -o $@
 
-# Pattern rules for architecture-independent C files (64-bit)
-$(BUILD_KERNEL_X86_64)/%.o: $(KERNEL_DIR)/%.c | $(BUILD_KERNEL_X86_64)
+# Pattern rules for architecture-independent C files (64-bit, %.c.o)
+$(BUILD_KERNEL_X86_64)/%.c.o: $(KERNEL_DIR)/%.c | $(BUILD_KERNEL_X86_64)
 	@mkdir -p $(dir $@)
 	$(call log_build,Compiling $< for 64-bit)
 	@$(CC_64) $(CFLAGS_64) -c $< -o $@
 
-# Pattern rules for architecture-independent ASM files (64-bit)
-$(BUILD_KERNEL_X86_64)/%.o: $(KERNEL_DIR)/%.asm | $(BUILD_KERNEL_X86_64)
+# Pattern rules for architecture-independent ASM files (64-bit, %.asm.o)
+$(BUILD_KERNEL_X86_64)/%.asm.o: $(KERNEL_DIR)/%.asm | $(BUILD_KERNEL_X86_64)
 	@mkdir -p $(dir $@)
 	$(call log_build,Assembling $< for 64-bit)
 	@$(AS) $(NASMFLAGS_64) $< -o $@

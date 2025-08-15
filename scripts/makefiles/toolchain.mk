@@ -23,13 +23,13 @@ AS = nasm
 GRUB_MKRESCUE = grub-mkrescue
 
 # Compiler flags for 32-bit
-CFLAGS_32_BASE = -m32 -march=i686 -ffreestanding -fno-stack-protector -fno-pie
+CFLAGS_32_BASE = -m32 -march=i686 -ffreestanding -fno-stack-protector -fno-pie -g
 CFLAGS_32_WARN = -Wall -Wextra -Werror -Wno-unused-parameter
 CFLAGS_32_INCLUDES = -Ikernel_include -Ilibc_include
 CFLAGS_32 = $(CFLAGS_32_BASE) $(CFLAGS_32_WARN) $(CFLAGS_32_INCLUDES)
 
 # Compiler flags for 64-bit
-CFLAGS_64_BASE = -m64 -mcmodel=kernel -mno-red-zone -ffreestanding -fno-stack-protector -fno-pie
+CFLAGS_64_BASE = -m64 -mcmodel=kernel -mno-red-zone -ffreestanding -fno-stack-protector -fno-pie -g
 CFLAGS_64_WARN = -Wall -Wextra -Werror -Wno-unused-parameter
 CFLAGS_64_INCLUDES = -Ikernel_include -Ilibc_include
 CFLAGS_64 = $(CFLAGS_64_BASE) $(CFLAGS_64_WARN) $(CFLAGS_64_INCLUDES)
@@ -44,8 +44,8 @@ LDFLAGS_64 = -m elf_x86_64 -T $(SCRIPTS_DIR)/linker.ld -nostdlib
 
 # Debug/Release mode
 ifdef DEBUG
-    CFLAGS_32 += -g -DDEBUG
-    CFLAGS_64 += -g -DDEBUG
+	CFLAGS_32 += -g -DDEBUG -fno-omit-frame-pointer
+	CFLAGS_64 += -g -DDEBUG -fno-omit-frame-pointer
 else
     CFLAGS_32 += -O2 -DNDEBUG
     CFLAGS_64 += -O2 -DNDEBUG

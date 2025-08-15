@@ -4,19 +4,19 @@
 I386_C_SOURCES = $(call find_c_sources,$(KERNEL_DIR)/i386)
 I386_ASM_SOURCES = $(call find_asm_sources,$(KERNEL_DIR)/i386)
 
-# Object files for i386
-I386_C_OBJECTS = $(patsubst $(KERNEL_DIR)/i386/%.c,$(BUILD_X86)/%.o,$(I386_C_SOURCES))
-I386_ASM_OBJECTS = $(patsubst $(KERNEL_DIR)/i386/%.asm,$(BUILD_X86)/%.o,$(I386_ASM_SOURCES))
+# Object files for i386 (uzantıyı koru: file.c -> file.c.o, file.asm -> file.asm.o)
+I386_C_OBJECTS = $(patsubst $(KERNEL_DIR)/i386/%.c,$(BUILD_X86)/%.c.o,$(I386_C_SOURCES))
+I386_ASM_OBJECTS = $(patsubst $(KERNEL_DIR)/i386/%.asm,$(BUILD_X86)/%.asm.o,$(I386_ASM_SOURCES))
 I386_OBJECTS = $(I386_C_OBJECTS) $(I386_ASM_OBJECTS)
 
-# Pattern rules for i386 C files
-$(BUILD_X86)/%.o: $(KERNEL_DIR)/i386/%.c | $(BUILD_X86)
+# Pattern rules for i386 C files (%.c.o hedefi)
+$(BUILD_X86)/%.c.o: $(KERNEL_DIR)/i386/%.c | $(BUILD_X86)
 	@mkdir -p $(dir $@)
 	$(call log_build,Compiling i386 specific: $<)
 	@$(CC_32) $(CFLAGS_32) -c $< -o $@
 
-# Pattern rules for i386 ASM files
-$(BUILD_X86)/%.o: $(KERNEL_DIR)/i386/%.asm | $(BUILD_X86)
+# Pattern rules for i386 ASM files (%.asm.o hedefi)
+$(BUILD_X86)/%.asm.o: $(KERNEL_DIR)/i386/%.asm | $(BUILD_X86)
 	@mkdir -p $(dir $@)
 	$(call log_build,Assembling i386 specific: $<)
 	@$(AS) $(NASMFLAGS_32) $< -o $@

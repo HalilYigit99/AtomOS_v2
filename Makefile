@@ -11,7 +11,9 @@ include scripts/makefiles/build-kernel.mk
 include scripts/makefiles/build-libc.mk
 include scripts/makefiles/build-grub.mk
 
-.PHONY: all clean kernel libc iso info
+.PHONY: all clean kernel libc iso info run run-bios run-efi run-efi32 run-efi64
+.PHONY: all clean kernel libc iso info run run-bios run-efi run-efi32 run-efi64 \
+	run-debug run-bios-debug run-efi-debug run-efi32-debug run-efi64-debug
 
 # Build kernels for both architectures
 kernel: kernel32 kernel64
@@ -67,8 +69,72 @@ info:
 	@echo "  kernel64  - Build 64-bit kernel only"
 	@echo "  libc      - Build LibC for both architectures"
 	@echo "  iso       - Create bootable ISO"
+	@echo "  run       - Run (alias of run-bios)"
+	@echo "  run-bios  - Run ISO in QEMU (legacy BIOS)"
+	@echo "  run-efi   - Run (alias of run-efi64)"
+	@echo "  run-efi32 - Run ISO in QEMU using 32-bit EFI (requires IA32 OVMF)"
+	@echo "  run-efi64 - Run ISO in QEMU using 64-bit EFI"
+	@echo "  run-debug        - (alias run-bios-debug)"
+	@echo "  run-bios-debug   - BIOS debug (QEMU -s -S + GDB attach)"
+	@echo "  run-efi-debug    - (alias run-efi64-debug)"
+	@echo "  run-efi32-debug  - EFI32 debug"
+	@echo "  run-efi64-debug  - EFI64 debug"
 	@echo "  clean     - Clean all build files"
 	@echo "  info      - Show this information"
+	@echo ""
+	@echo "Hints: make run-efi32 için /usr/share/qemu/OVMF_CODE_IA32.fd gerekir; yoksa 32-bit OVMF paketini/manual edin."
+
+# QEMU run targets
+QEMU_RUN_SCRIPT = $(SCRIPTS_DIR)/tools/run_qemu.sh
+
+# Varsayilan run BIOS
+run: run-bios
+
+run-bios: iso
+	$(call log_info,Starting QEMU (BIOS))
+	@$(QEMU_RUN_SCRIPT) bios
+
+# EFI alias
+run-efi: run-efi64
+
+run-efi64: iso
+	$(call log_info,Starting QEMU (EFI 64-bit))
+	@$(QEMU_RUN_SCRIPT) efi64
+
+run-efi32: iso
+	$(call log_info,Starting QEMU (EFI 32-bit))
+	@$(QEMU_RUN_SCRIPT) efi32 || { \
+		$(call log_warn,EFI32 çalışmadı; 32-bit OVMF mevcut mu?); \
+		echo "Eksikse: sudo apt install ovmf (yalnızca x64 sağlıyorsa ayrı IA32 firmware indirin)"; \
+		echo "Alternatif: https://github.com/tianocore/edk2 'den IA32 OVMF derleyin"; \
+		exit 1; \
+	}
+
+# Debug aliases
+run-debug: run-bios-debug
+run-efi-debug: run-efi64-debug
+
+# Debug run targets (yeniden derlemede DEBUG=1 kullan)
+run-bios-debug: DEBUG=1
+run-bios-debug: iso
+	$(call log_info,Launching BIOS debug session)
+	@$(QEMU_RUN_SCRIPT) bios-debug & \
+	sleep 1; \
+	$(SCRIPTS_DIR)/tools/gdb_wrap.sh i386 $(KERNEL_X86_ELF)
+
+run-efi32-debug: DEBUG=1
+run-efi32-debug: iso
+	$(call log_info,Launching EFI32 debug session)
+	@$(QEMU_RUN_SCRIPT) efi32-debug & \
+	sleep 1; \
+	$(SCRIPTS_DIR)/tools/gdb_wrap.sh i386 $(KERNEL_X86_ELF)
+
+run-efi64-debug: DEBUG=1
+run-efi64-debug: iso
+	$(call log_info,Launching EFI64 debug session)
+	@$(QEMU_RUN_SCRIPT) efi64-debug & \
+	sleep 1; \
+	$(SCRIPTS_DIR)/tools/gdb_wrap.sh x86_64 $(KERNEL_X64_ELF)
 
 # Clean everything
 clean:

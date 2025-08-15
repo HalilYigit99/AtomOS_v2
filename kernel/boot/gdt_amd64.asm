@@ -27,4 +27,5 @@ gdt_amd64_end:
 
 gdtr_amd64:
     dw gdt_amd64_end - gdt_amd64 - 1
-    dq gdt_amd64
+    dd gdt_amd64
+    dd 0x00000000 ; Reserved
