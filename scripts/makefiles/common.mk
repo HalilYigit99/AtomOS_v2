@@ -1,5 +1,5 @@
 # Common definitions and utilities
-PROJECT_NAME = UmayOS
+PROJECT_NAME = AtomOS
 VERSION = 0.1.0
 
 # Directory structure

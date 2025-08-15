@@ -1,7 +1,7 @@
 #!/bin/bash
-# QEMU test script for UmayOS
+# QEMU test script for AtomOS
 
-PROJECT_NAME="UmayOS"
+PROJECT_NAME="AtomOS"
 ISO_FILE="${PROJECT_NAME}.iso"
 
 # Colors

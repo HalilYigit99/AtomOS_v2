@@ -1,10 +1,10 @@
 #!/bin/bash
-# UmayOS Development Environment Setup Script
+# AtomOS Development Environment Setup Script
 # Installs all required dependencies and cross-compilers
 
 set -e  # Exit on any error
 
-PROJECT_NAME="UmayOS"
+PROJECT_NAME="AtomOS"
 CROSS_PREFIX="/opt/cross-compiler"
 BINUTILS_VERSION="2.42"
 GCC_VERSION="13.2.0"
@@ -136,7 +136,7 @@ download_package() {
 # Download source code
 download_sources() {
     local cache_dir="$CROSS_PREFIX/src-cache"
-    local build_dir="/tmp/UmayOS-toolchain-build-$$"
+    local build_dir="/tmp/AtomOS-toolchain-build-$$"
 
     log_info "Creating cache directory: $cache_dir"
     sudo mkdir -p "$cache_dir"
@@ -234,11 +234,11 @@ update_path() {
         return
     fi
 
-    if grep -q "UmayOS Cross-Compiler" "$shell_rc"; then
+    if grep -q "AtomOS Cross-Compiler" "$shell_rc"; then
         log_info "PATH already contains cross-compiler directory."
     else
         log_info "Adding cross-compiler to PATH in $shell_rc"
-        echo -e "\n# UmayOS Cross-Compiler\nexport PATH=\"$CROSS_PREFIX/bin:\$PATH\"" >> "$shell_rc"
+        echo -e "\n# AtomOS Cross-Compiler\nexport PATH=\"$CROSS_PREFIX/bin:\$PATH\"" >> "$shell_rc"
         log_info "PATH updated. Please restart your shell or run 'source $shell_rc'"
     fi
     export PATH="$CROSS_PREFIX/bin:$PATH"
@@ -253,7 +253,7 @@ verify_installation() {
         log_info "All cross-compilers found in PATH."
         log_info "i686-elf-gcc: $(i686-elf-gcc --version | head -n1)"
         log_info "x86_64-elf-gcc: $(x86_64-elf-gcc --version | head -n1)"
-        log_info "Setup complete! You can now build UmayOS."
+        log_info "Setup complete! You can now build AtomOS."
     else
         log_error "Cross-compilers not found in PATH. Please check the installation."
         return 1

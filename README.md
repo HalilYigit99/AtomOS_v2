@@ -1,4 +1,4 @@
-# UmayOS
+# AtomOS
 
 A multi-architecture operating system supporting both 32-bit (i386) and 64-bit (x86_64) architectures with hybrid BIOS/EFI boot support.
 
@@ -32,7 +32,7 @@ You need to install cross-compilers for both architectures:
 ## Project Structure
 
 ```
-UmayOS/
+AtomOS/
 ├── kernel/
 │   ├── i386/           # 32-bit architecture specific code
 │   ├── amd64/          # 64-bit architecture specific code
@@ -58,7 +58,7 @@ UmayOS/
 make all
 ```
 
-This creates `UmayOS.iso` - a hybrid ISO that boots on all supported systems.
+This creates `AtomOS.iso` - a hybrid ISO that boots on all supported systems.
 
 ### Build Specific Components
 

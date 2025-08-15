@@ -1,7 +1,7 @@
 #!/bin/bash
-# ISO creation script for UmayOS
+# ISO creation script for AtomOS
 
-PROJECT_NAME="UmayOS"
+PROJECT_NAME="AtomOS"
 ISO_STAGING="iso"
 BUILD_DIR="build"
 FINAL_ISO="${PROJECT_NAME}.iso"
@@ -160,7 +160,7 @@ verify_iso() {
 
 # Main execution
 main() {
-    echo "=== UmayOS ISO Creation ==="
+    echo "=== AtomOS ISO Creation ==="
     
     check_tools
     check_kernels

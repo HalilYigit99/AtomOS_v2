@@ -1,5 +1,5 @@
-# UmayOS Main Makefile
-PROJECT_NAME = UmayOS
+# AtomOS Main Makefile
+PROJECT_NAME = AtomOS
 
 # Default target (must be first!)
 all: iso

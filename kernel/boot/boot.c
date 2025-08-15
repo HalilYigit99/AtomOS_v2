@@ -17,7 +17,7 @@ void __boot_kernel_start(void)
 {
     debugStream->Open();
 
-    LOG("Booting UmayOS Kernel");
+    LOG("Booting AtomOS Kernel");
 
     LOG("Multiboot2 Signature: 0x%08X", mb2_signature);
     LOG("Multiboot2 Tag Pointer: 0x%08X", mb2_tagptr);

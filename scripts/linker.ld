@@ -1,4 +1,4 @@
-/* UmayOS Kernel Linker Script
+/* AtomOS Kernel Linker Script
  * Compatible with both 32-bit and 64-bit architectures
  * Load address: 1MB (0x100000) - Classic kernel location
  */
