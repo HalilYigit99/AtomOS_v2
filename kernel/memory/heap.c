@@ -119,51 +119,40 @@ void heap_init() {
         asm volatile ("cli; hlt");
     }
 
-    LOG("Detected %u memory regions", memoryRegionCount);
-
     size_t firstAvailableBase = 0;
     size_t firstAvailableEnd = 0;
+    
+    const size_t kernelEnd = (size_t)&__kernel_end;
     
     for (size_t i = 0; i < memoryRegionCount; i++) {
         struct multiboot_mmap_entry* entry = &entries[i];
         if (entry->type == MULTIBOOT_MEMORY_AVAILABLE) {
 
             size_t entryBase = (size_t)entry->addr;
-            size_t entryEnd = entryBase + entry->len;
+            size_t entryEnd = entryBase + (size_t)entry->len;
 
-            if (entryBase < (size_t)&__kernel_end) {
-                if (entryEnd > (size_t)&__kernel_end) {
-                    entryBase = (size_t)&__kernel_end; // yalnızca yerel değişkeni ayarla, MMAP'i değiştirme
+            if (entryBase < kernelEnd)
+            {
+                if (entryEnd > kernelEnd) {
+                    entryBase = kernelEnd; // Adjust to start after kernel
+                    LOG("Adjusting memory region base to start after kernel: %p", entryBase);
                 } else {
-                    LOG("Skipping memory region below kernel end: %p - %p", (void*)entryBase, (void*)entryEnd);
-                    continue; // Skip regions below the kernel end
+                    LOG("Skipping memory region ( base: %p, end: %p ): lower or inside kernel", entryBase, entryEnd);
+                    continue; // Skip this region, it's entirely before the kernel
                 }
             }
 
-            // Bitişik ve kullanılabilir bölgeleri güvenli şekilde birleştir
-            size_t k = i;
-            while ((k + 1) < memoryRegionCount) {
-                struct multiboot_mmap_entry* n = &entries[k + 1];
-                if (n->type != MULTIBOOT_MEMORY_AVAILABLE) break;
-                size_t cur_end = (size_t)entries[k].addr + entries[k].len;
-                if (cur_end != (size_t)n->addr) break; // sadece bitişikse birleştir
-                k++;
-            }
-            if (k > i) {
-                entryEnd = (size_t)entries[k].addr + entries[k].len;
+            size_t regionSize = entryEnd - entryBase;
+
+            if (regionSize < 4 * 1024 * 1024) {
+                LOG("Skipping memory region ( base: %p, end: %p ): too small (%zu KB)", entryBase, entryEnd, regionSize / 1024);
+                continue; // Skip small regions
             }
 
-            size_t size = entryEnd - entryBase;
-
-            if (size >= 64 * 1024 * 1024)
+            if (regionSize > 64 * 1024 * 1024)
             {
-                entryEnd = entryBase + 64 * 1024 * 1024; // Limit to 64MB for the first region
-                LOG("Limiting memory region to 64MB: %p - %p", (void*)entryBase, (void*)entryEnd);
-            }
-
-            if (size < 16 * 1024 * 1024) {
-                LOG("Skipping small memory region: %p - %p (size: %zu bytes)", (void*)entryBase, (void*)entryEnd, size);
-                continue; // Skip regions smaller than 16MB
+                entryEnd = entryBase + 64 * 1024 * 1024; // Limit to 64MB
+                LOG("Limiting memory region size to 64MB: %p", entryEnd);
             }
 
             firstAvailableBase = entryBase;
@@ -184,15 +173,23 @@ void heap_init() {
     LOG("Using first available memory region: %p - %p", (void*)firstAvailableBase, (void*)firstAvailableEnd);
     LOG("Region size: %zu KB ( %zu MB )", bytes / 1024, bytes / (1024 * 1024));
 
-    firstRegion = (HeapRegion){
-        .firstNode = (HeapNode*)firstAvailableBase,
-        .size = firstAvailableEnd - firstAvailableBase,
-        .next = NULL
-    };
+    firstRegion.firstNode = (HeapNode*)firstAvailableBase;
+    firstRegion.size = firstAvailableEnd - firstAvailableBase;
+    firstRegion.next = NULL;
 
     kernel_heap.firstRegion = &firstRegion;
 
     heap_init_region(&firstRegion);
+
+    void* test = heap_alloc(&kernel_heap, 1024 * 1024); // Allocate 1MB for testing
+
+    if (!test) {
+        ERROR("Heap initialization failed: could not allocate test block");
+        asm volatile ("cli; hlt");
+    } else {
+        LOG("Heap initialized successfully, test allocation at %p", test);
+        heap_free(&kernel_heap, test); // Free the test allocation
+    }
 
 }
 

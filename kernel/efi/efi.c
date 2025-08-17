@@ -3,6 +3,7 @@
 #include <efi/efi.h>
 #include <efi/efi_memory.h>
 #include <debug/debug.h>
+#include <machine/machine.h>
 
 extern uint32_t efi_memory_map_key;
 
@@ -43,6 +44,18 @@ void efi_init(void) {
             LOG("EFI Boot Services successfully exited");
         }
     }
+
+    // Calculate RAM size: sadece kullanılabilir bellekleri topla
+    machine_ramSizeInKB = 0;
+    uint32_t entryCount = 0;
+    struct multiboot_mmap_entry* memory_map = multiboot2_get_memory_map(&entryCount);
+
+    for (size_t i = 0; i < entryCount; i++) {
+        struct multiboot_mmap_entry* entry = &memory_map[i];
+        machine_ramSizeInKB += (size_t)(entry->len / 1024u); // KB cinsinden ekle
+    }
+
+    machine_ramSizeInKB += 1024;
     
     LOG("EFI subsystem initialization complete");
 }
