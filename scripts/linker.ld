@@ -53,11 +53,6 @@ SECTIONS
         __stack_end = .;
     }
     
-    /* Define symbols for kernel sections */
-    __kernel_start = 0x100000;
-    __kernel_end = .;
-    __kernel_size = __kernel_end - __kernel_start;
-    
     /* Text section boundaries */
     __text_start = ADDR(.text);
     __text_end = ADDR(.text) + SIZEOF(.text);
@@ -80,4 +75,9 @@ SECTIONS
     }
         /* Debug/backtrace için .eh_frame ve .eh_frame_hdr TUTULUYOR */
         /* .eh_frame ve .eh_frame_hdr bölümleri gereksiz olarak atılmaktadır */
+
+    /* Define symbols for kernel sections */
+    __kernel_start = 0x100000;
+    __kernel_end = .;
+    __kernel_size = __kernel_end - __kernel_start;
 }

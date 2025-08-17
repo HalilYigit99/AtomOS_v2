@@ -11,7 +11,7 @@ GRUB_EFI_X64 = $(ISO_EFI_BOOT)/bootx64.efi
 GRUB_EFI_IA32 = $(ISO_EFI_BOOT)/bootia32.efi
 
 # GRUB modules
-GRUB_MODULES_COMMON = multiboot2 normal configfile ls cat echo test font gfxterm gfxmenu
+GRUB_MODULES_COMMON = multiboot2 normal configfile ls cat echo test font gfxterm gfxmenu memrw
 GRUB_MODULES_BIOS = part_msdos part_gpt fat ext2
 GRUB_MODULES_EFI = efi_gop efi_uga part_gpt fat
 GRUB_MODULES_VIDEO = all_video video

@@ -32,6 +32,8 @@ bool mb2_is_efi_boot = false; // Global flag for EFI boot
 
 extern uint32_t mb2_tagptr; // Pointer to the multiboot2 tags
 
+struct multiboot_mmap_entry* efi_mmap_fallback_get_memory_map(uint32_t* entry_count);
+
 void multiboot2_parse() {
     struct multiboot_tag *tag;
     
@@ -224,6 +226,15 @@ void multiboot2_parse() {
         efi_system_table = (EFI_SYSTEM_TABLE*)multiboot2_get_efi_system_table();
     }
 
+    // Get memory map
+    size_t count;
+    if (multiboot2_get_memory_map((uint32_t*)&count)) {
+        LOG("Memory map get succeed. Entry Count=%u", count);
+    }else {
+        ERROR("Memory map failed!");
+        asm volatile ("cli; hlt");
+    }
+
 }
 
 int multiboot2_is_efi_boot(void) {
@@ -260,31 +271,6 @@ const char* multiboot2_get_bootloader_name(void) {
     return mb2_bootloader_name->string;
     }
     return NULL;
-}
-
-// Memory information functions
-uint32_t multiboot2_get_memory_lower(void) {
-    if (mb2_basic_meminfo) {
-        return mb2_basic_meminfo->mem_lower;
-    }
-    return 0;
-}
-
-uint32_t multiboot2_get_memory_upper(void) {
-    if (mb2_basic_meminfo) {
-        return mb2_basic_meminfo->mem_upper;
-    }
-    return 0;
-}
-
-struct multiboot_mmap_entry* multiboot2_get_memory_map(uint32_t *entry_count) {
-    if (!mb2_mmap || !entry_count) {
-        if (entry_count) *entry_count = 0;
-        return NULL;
-    }
-    
-    *entry_count = (mb2_mmap->size - sizeof(struct multiboot_tag_mmap)) / mb2_mmap->entry_size;
-    return (struct multiboot_mmap_entry*)mb2_mmap->entries;
 }
 
 // EFI specific functions
@@ -433,4 +419,189 @@ const char* multiboot2_efi_memory_type_to_string(uint32_t type) {
         default:
             return "Unknown";
     }
+}
+
+// EFI fallback memory map function
+extern struct multiboot_mmap_entry* efi_fallback_get_memory_map(uint32_t *entry_count);
+
+static struct multiboot_mmap_entry* mb2_mmap_entry_ptr;
+static uint32_t mb2_mmap_entry_count;
+
+struct multiboot_mmap_entry* multiboot2_get_memory_map(uint32_t *entry_count) {
+    if (!entry_count) {
+        return NULL;
+    }
+
+    // Detected before. Return them
+    if (mb2_mmap_entry_ptr && (mb2_mmap_entry_count != 0)) {
+        *entry_count = mb2_mmap_entry_count;
+        return mb2_mmap_entry_ptr;
+    }
+    
+    *entry_count = 0;
+    
+    // Önce normal Multiboot2 memory map'i dene
+    if (mb2_mmap) {
+        *entry_count = (mb2_mmap->size - sizeof(struct multiboot_tag_mmap)) / mb2_mmap->entry_size;
+        LOG("Using Multiboot2 BIOS memory map: %u entries", *entry_count);
+        mb2_mmap_entry_ptr =  (struct multiboot_mmap_entry*)mb2_mmap->entries;
+        mb2_mmap_entry_count = *entry_count;
+        return mb2_mmap_entry_ptr;
+    }
+    
+    // Multiboot2 EFI memory map'i dene
+    if (mb2_efi_mmap) {
+        LOG("Using Multiboot2 EFI memory map");
+        mb2_mmap_entry_ptr = efi_mmap_fallback_get_memory_map(entry_count);
+        mb2_mmap_entry_count = *entry_count;
+        return mb2_mmap_entry_ptr;
+    }
+    
+    // Son çare: Manuel EFI memory map
+    if (multiboot2_is_efi_boot() && efi_system_table) {
+        LOG("No Multiboot2 memory maps available, trying manual EFI detection");
+        mb2_mmap_entry_ptr = efi_fallback_get_memory_map(entry_count);
+        mb2_mmap_entry_count = *entry_count;
+        return mb2_mmap_entry_ptr;
+    }
+    
+    ERROR("No memory map available (BIOS, EFI Multiboot2, or manual EFI)");
+    return (struct multiboot_mmap_entry*)NULL;
+}
+
+// Basic memory info için de fallback
+uint32_t multiboot2_get_memory_lower(void) {
+    if (mb2_basic_meminfo) {
+        return mb2_basic_meminfo->mem_lower;
+    }
+    
+    // EFI fallback: İlk 1MB'ı conventional memory olarak say
+    if (multiboot2_is_efi_boot()) {
+        LOG("Using EFI fallback for lower memory: 640KB");
+        return 640; // Standart lower memory
+    }
+    
+    return 0;
+}
+
+uint32_t multiboot2_get_memory_upper(void) {
+    if (mb2_basic_meminfo) {
+        return mb2_basic_meminfo->mem_upper;
+    }
+    
+    // EFI fallback: Memory map'den hesapla
+    if (multiboot2_is_efi_boot()) {
+        uint32_t entry_count;
+        struct multiboot_mmap_entry* mmap = efi_fallback_get_memory_map(&entry_count);
+        
+        if (mmap) {
+            uint64_t total_upper = 0;
+            
+            for (uint32_t i = 0; i < entry_count; i++) {
+                if (mmap[i].type == MULTIBOOT_MEMORY_AVAILABLE && mmap[i].addr >= 0x100000) {
+                    total_upper += mmap[i].len;
+                }
+            }
+            
+            LOG("EFI fallback upper memory: %llu KB", total_upper / 1024);
+            return (uint32_t)(total_upper / 1024);
+        }
+    }
+    
+    return 0;
+}
+
+struct multiboot_mmap_entry multiboot_mmap_entries[256];
+
+struct multiboot_mmap_entry* efi_mmap_fallback_get_memory_map(uint32_t* entry_count)
+{
+    
+    if (!entry_count) {
+        return NULL;
+    }
+    
+    *entry_count = 0;
+    
+    // EFI memory map'i al
+    if (mb2_efi_mmap) {
+        uint32_t descr_size = mb2_efi_mmap->descr_size;
+        uint32_t map_size = mb2_efi_mmap->size - sizeof(struct multiboot_tag_efi_mmap);
+        uint32_t efi_entry_count = map_size / descr_size;
+
+        if (efi_entry_count == 0) {
+            WARN("EFI memory map present but empty");
+            return NULL;
+        }
+
+        uint8_t *ptr = mb2_efi_mmap->efi_mmap;
+        uint32_t out = 0;
+
+        for (uint32_t i = 0; i < efi_entry_count; i++) {
+            if (out >= 256) {
+                ERROR("EFI memory map has too many entries (%u), truncating to 256", efi_entry_count);
+                break;
+            }
+
+            // UEFI Memory Descriptor yerleşimi:
+            // UINT32 Type; UINT32 Pad; UINT64 PhysicalStart; UINT64 VirtualStart;
+            // UINT64 NumberOfPages; UINT64 Attribute;
+            uint32_t type = *(uint32_t *)(void*)ptr;
+            uint64_t phys = *(uint64_t *)(void*)(ptr + 8);
+            uint64_t pages = *(uint64_t *)(void*)(ptr + 24);
+
+            uint64_t len = pages * 4096ULL; // EFI sayfa boyutu 4KB
+            if (len == 0) {
+                ptr += descr_size;
+                continue; // sıfır uzunluklu girdileri atla
+            }
+
+            multiboot_mmap_entries[out].addr = phys;
+            multiboot_mmap_entries[out].len = len;
+
+            // EFI -> Multiboot tür eşlemesi
+            uint32_t mb2_type;
+            switch (type) {
+                case EFI_CONVENTIONAL_MEMORY:
+                    mb2_type = MULTIBOOT_MEMORY_AVAILABLE; break;
+                case EFI_ACPI_RECLAIM_MEMORY:
+                    mb2_type = MULTIBOOT_MEMORY_ACPI_RECLAIMABLE; break;
+                case EFI_ACPI_MEMORY_NVS:
+                    mb2_type = MULTIBOOT_MEMORY_NVS; break;
+                case EFI_UNUSABLE_MEMORY:
+                    mb2_type = MULTIBOOT_MEMORY_BADRAM; break;
+                case EFI_RESERVED_MEMORY_TYPE:
+                case EFI_LOADER_CODE:
+                case EFI_LOADER_DATA:
+                case EFI_BOOT_SERVICES_CODE:
+                case EFI_BOOT_SERVICES_DATA:
+                case EFI_RUNTIME_SERVICES_CODE:
+                case EFI_RUNTIME_SERVICES_DATA:
+                case EFI_MEMORY_MAPPED_IO:
+                case EFI_MEMORY_MAPPED_IO_PORT_SPACE:
+                case EFI_PAL_CODE:
+                case EFI_PERSISTENT_MEMORY:
+                default:
+                    mb2_type = MULTIBOOT_MEMORY_RESERVED; break;
+            }
+            multiboot_mmap_entries[out].type = mb2_type;
+            multiboot_mmap_entries[out].reserved = 0;
+            out++;
+
+            ptr += descr_size;
+        }
+
+        *entry_count = out;
+        LOG("Converted EFI memory map: in=%u out=%u entries", efi_entry_count, *entry_count);
+
+        if (*entry_count == 0) {
+            WARN("EFI memory map conversion produced no entries");
+            return NULL;
+        }
+
+        return multiboot_mmap_entries;
+    }
+    
+    ERROR("No EFI memory map available");
+    return NULL;
+
 }

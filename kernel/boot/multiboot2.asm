@@ -7,16 +7,25 @@ multiboot2_header:
     dd -(0xe85250d6 + 0 + (multiboot2_header_end - multiboot2_header))  ; Checksum
 
     align 8
-    ; Bilgi Talep Etiketi (Information Request Tag)
-    ; Bu etiket ile önyükleyiciden hangi bilgileri istediğimizi belirtiriz.
+    ; Information Request Tag - BURASI ÖNEMLİ!
+    ; Bu tag ile bootloader'dan hangi bilgileri istediğimizi belirtiyoruz
 request_tag_start:
     dw 1      ; type = MULTIBOOT_HEADER_TAG_INFORMATION_REQUEST
     dw 0      ; flags = 0
     dd request_tag_end - request_tag_start   ; size
 
-    dd 17     ; MULTIBOOT_TAG_EFI_MEMORY_MAP (0x00000011)
-    dd 6      ; MULTIBOOT_TAG_TYPE_MMAP       (0x00000006)
-    dd 4      ; MULTIBOOT_TAG_TYPE_BASIC_MEMINFO  (0x00000004)
+    ; Talep edilen tag'lar (ÖNEMLİ: Sıra önemli değil)
+    dd 1      ; MULTIBOOT_TAG_TYPE_CMDLINE
+    dd 2      ; MULTIBOOT_TAG_TYPE_BOOT_LOADER_NAME  
+    dd 4      ; MULTIBOOT_TAG_TYPE_BASIC_MEMINFO
+    dd 6      ; MULTIBOOT_TAG_TYPE_MMAP
+    dd 8      ; MULTIBOOT_TAG_TYPE_FRAMEBUFFER
+    dd 9      ; MULTIBOOT_TAG_TYPE_ELF_SECTIONS
+    dd 11     ; MULTIBOOT_TAG_TYPE_EFI32
+    dd 12     ; MULTIBOOT_TAG_TYPE_EFI64
+    dd 17     ; MULTIBOOT_TAG_TYPE_EFI_MMAP
+    dd 19     ; MULTIBOOT_TAG_TYPE_EFI32_IH
+    dd 20     ; MULTIBOOT_TAG_TYPE_EFI64_IH
 request_tag_end:
 
 

@@ -59,3 +59,6 @@ docs/latex/
 *.bak
 *.backup
 *~
+
+logo.bmp
+.gitignore

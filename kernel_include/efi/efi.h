@@ -37,6 +37,15 @@ typedef struct {
 #define EFI_OUT_OF_RESOURCES        0x8000000000000009ULL
 #define EFI_NOT_FOUND               0x800000000000000EULL
 
+/* Calling convention: UEFI uses Microsoft x64 ABI on x86_64 and stdcall on IA-32 */
+#if defined(__x86_64__)
+#  define EFIAPI __attribute__((ms_abi))
+#elif defined(__i386__)
+#  define EFIAPI __attribute__((stdcall))
+#else
+#  define EFIAPI
+#endif
+
 /* EFI Memory Types */
 typedef enum {
     EfiReservedMemoryType,
@@ -279,9 +288,9 @@ typedef struct {
 #define EFI_RUNTIME_SERVICES_REVISION EFI_2_80_SYSTEM_TABLE_REVISION
 
 /* EFI makroları */
-#define EFI_ERROR(status) ((int64_t)(status) < 0)
-#undef EFI_SUCCESS
-#define EFI_SUCCESS(status) (!EFI_ERROR(status))
+#define EFI_ERROR(Status)            (((int64_t)(Status)) < 0)
+#define IS_EFI_ERROR(status)         EFI_ERROR(status)
+#define IS_EFI_SUCCESS(status)       (!EFI_ERROR(status))
 
 /* Alignment makroları */
 #define EFI_PAGE_SIZE 0x1000
