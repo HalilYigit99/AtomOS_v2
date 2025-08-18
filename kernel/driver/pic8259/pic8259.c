@@ -13,6 +13,9 @@ extern void pic8259_slave_default_isr();
 
 extern void pic8259_irq2();
 
+uint8_t master_mask = 0xFF; // Master PIC maskesi
+uint8_t slave_mask = 0xFF; // Slave PIC maskesi
+
 static inline uint8_t get_active_slave_irq() {
     // Slave PIC Command Port = 0xA0
     // OCW3: Read ISR (0x0B)
@@ -48,8 +51,8 @@ bool pic8259_init() {
     outb(0xa1, 0x02);  // Slave PIC: Cascade identity
 
     // 4. Modu ayarla (8086/88 mod)
-    outb(0x20, 0x01); // Master PIC
-    outb(0xA0, 0x01); // Slave PIC
+    outb(0x21, 0x01); // Master PIC
+    outb(0xA1, 0x01); // Slave PIC
 
     // 5. Maskeleri doldur (tüm IRQ'lar pasif)
     outb(0x21, 0xFF); // Master PIC maskesi
@@ -69,16 +72,16 @@ bool pic8259_init() {
 
     irq_controller = &pic8259_irq_controller;
     pic8259_driver.enabled = true;
+    irq_controller->enable(2); // IRQ2'yi etkinleştir (Slave PIC)
+
+    master_mask = inb(0x21); // Mevcut maskeyi al
+    slave_mask = inb(0xA1); // Mevcut maskeyi al
 
     pic8259_irq_controller.register_handler(2, pic8259_irq2); // Slave PIC için varsayılan ISR
-    pic8259_irq_controller.enable(2); // IRQ2'yi etkinleştir (Slave PIC)
 
     return true;
 
 }
-
-static uint8_t master_mask = 0xFF; // Master PIC maskesi
-static uint8_t slave_mask = 0xFF; // Slave PIC maskesi
 
 void pic8259_enable() {
 

@@ -22,6 +22,7 @@ extern void efi_init();
 extern void bios_init();
 
 extern void heap_init();
+extern void gfx_init();
 
 void printMemoryRegions();
 
@@ -64,6 +65,8 @@ void __boot_kernel_start(void)
 
     system_driver_enable(&ps2kbd_driver);
     system_driver_enable(&ps2mouse_driver);
+
+    gfx_init();
 
 }
 

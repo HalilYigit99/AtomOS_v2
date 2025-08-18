@@ -208,15 +208,11 @@ extern void __ps2kbd_tr_f_handle(uint8_t scancode);
 
 void ps2kbd_handler() {
 
-    LOG("Interrupt raised!");
-
     if (!ps2_event_buffer) {
         return;
     }
 
     char scancode = inb(PS2_DATA_PORT);
-
-    LOG("Scancode received: 0x%02X", scancode);
 
     if (currentLayout == LAYOUT_US_QWERTY) {
         __ps2kbd_us_qwerty_handle(scancode);

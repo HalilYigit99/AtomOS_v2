@@ -2,6 +2,7 @@
 #define STRING_H
 
 #include <stddef.h>
+#include <memory/memory.h>
 
 // String uzunluğu fonksiyonları
 size_t strlen(const char *str);
@@ -26,13 +27,6 @@ char *strchr(const char *str, int c);
 char *strrchr(const char *str, int c);
 char *strstr(const char *haystack, const char *needle);
 char *strnstr(const char *haystack, const char *needle, size_t len);
-
-// Memory fonksiyonları
-void *memset(void *ptr, int value, size_t num);
-void *memcpy(void *dest, const void *src, size_t n);
-void *memmove(void *dest, const void *src, size_t n);
-int memcmp(const void *ptr1, const void *ptr2, size_t num);
-void *memchr(const void *ptr, int value, size_t num);
 
 // String yardımcı fonksiyonları
 char *strdup(const char *str);

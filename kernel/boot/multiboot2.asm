@@ -34,8 +34,8 @@ request_tag_end:
         dw 5        ; Type (framebuffer tag)
         dw 0        ; Flags
         dd 20       ; Size
-        dd 0      ; Width
-        dd 0      ; Height
+        dd 800      ; Width
+        dd 600      ; Height
         dd 32       ; Depth
 
     align 8
