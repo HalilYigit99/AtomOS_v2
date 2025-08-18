@@ -3,6 +3,14 @@
 #include <debug/debug.h>
 #include <boot/multiboot2.h>
 #include <arch.h>
+#include <acpi/acpi.h>
+#include <driver/DriverBase.h>
+#include <keyboard/Keyboard.h>
+#include <mouse/mouse.h>
+
+extern DriverBase pic8259_driver;
+extern DriverBase ps2kbd_driver;
+extern DriverBase ps2mouse_driver;
 
 extern uint32_t mb2_signature;
 extern uint32_t mb2_tagptr;
@@ -39,6 +47,53 @@ void __boot_kernel_start(void)
     heap_init();
 
     pmm_init();
+
+    /* ACPI tablolarını multiboot üzerinden başlat */
+    acpi_init();
+
+    // TODO: APIC or PIC selection and initialization
+    // INFO: APIC is not implemented yet, so we will use PIC for now.
+    system_driver_register(&pic8259_driver);
+    system_driver_enable(&pic8259_driver);
+
+    // Enable HID drivers
+    LOG("Loading HID drivers...");
+
+    system_driver_register(&ps2kbd_driver);
+    // system_driver_register(&ps2mouse_driver);
+
+    system_driver_enable(&ps2kbd_driver);
+    // system_driver_enable(&ps2mouse_driver);
+
+    asm volatile ("sti"); // Enable interrupts
+
+    // Test HID devices
+
+    int cursor_last_x = cursor_X;
+    int cursor_last_y = cursor_Y;
+
+    // Clear keyboard input buffer
+    while (keyboardInputStream.available()) {
+        char c;
+        keyboardInputStream.readChar(&c);
+    }
+
+    while (1) 
+    {
+
+        if (cursor_last_x != cursor_X || cursor_last_y != cursor_Y) {
+            LOG("Mouse moved to: (%d, %d)", cursor_X, cursor_Y);
+            cursor_last_x = cursor_X;
+            cursor_last_y = cursor_Y;
+        }
+
+        if (keyboardInputStream.available()) {
+            char c;
+            keyboardInputStream.readChar(&c);
+            LOG("Key pressed: '%c' (ASCII: %d)", c, c);
+        }
+
+    }
 
 }
 

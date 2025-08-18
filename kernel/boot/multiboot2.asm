@@ -43,7 +43,6 @@ request_tag_end:
         dw 7
         dw 0
         dd 8
-    
 
     align 8
     .end_tag:

@@ -4,17 +4,25 @@
 extern "C" {
 #endif
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdbool.h>
 
 typedef struct {
-    void (*Open)();
-    void (*Close)();
-    char (*ReadChar)();
-    void (*ReadString)(char* buffer, size_t size);
-    int (*Available)();
+
+    int(*Open)();
+    void(*Close)();
+
+    int(*readChar)(char* c);
+    int(*readString)(char* str, size_t maxLength);
+    int(*readBuffer)(void* buffer, size_t size);
+
+    int(*available)();
+    char(*peek)();
+    void(*flush)();
+
 } InputStream;
+
 
 
 
