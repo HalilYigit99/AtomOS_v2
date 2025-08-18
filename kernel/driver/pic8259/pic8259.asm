@@ -3,7 +3,10 @@ section .text
 global pic8259_irq2
 global pic8259_slave_default_isr
 global pic8259_irq2_handler
+global pic8259_master_default_isr
+
 extern pic8259_irq2_isr_addr
+extern pic8259_irq2_isr_handler
 
 %if __BITS__ == 64
 use64
@@ -26,7 +29,7 @@ pic8259_irq2:
     push r14
     push r15
 
-    call pic8259_irq2_isr_addr
+    call pic8259_irq2_isr_handler
 
     pop r15
     pop r14
@@ -47,6 +50,19 @@ pic8259_irq2:
     push qword [pic8259_irq2_isr_addr]
     ret
 
+pic8259_master_default_isr:
+    cli
+
+    push rax
+
+    mov al, 0x20
+    out 0x20, al
+
+    pop rax
+
+    sti
+    iretq
+
 pic8259_slave_default_isr:
     cli
 
@@ -58,6 +74,7 @@ pic8259_slave_default_isr:
 
     pop rax
 
+    sti
     iretq
 
 %else
@@ -67,12 +84,25 @@ pic8259_irq2:
     cli
 
     pushad
-    call pic8259_irq2_isr_addr
+    call pic8259_irq2_isr_handler
     popad
 
     push dword [pic8259_irq2_isr_addr]
 
     ret
+
+pic8259_master_default_isr:
+    cli
+
+    push eax
+
+    mov al, 0x20
+    out 0x20, al
+
+    pop eax
+
+    sti
+    iret
 
 pic8259_slave_default_isr:
     cli
@@ -85,6 +115,7 @@ pic8259_slave_default_isr:
 
     pop eax
 
+    sti
     iret
 
 %endif

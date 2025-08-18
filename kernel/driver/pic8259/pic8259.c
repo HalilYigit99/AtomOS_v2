@@ -1,11 +1,15 @@
 #include <driver/DriverBase.h>
 #include <irq/IRQ.h>
 #include <arch.h>
+#include <debug/debug.h>
 
 size_t pic8259_irq2_isr_addr;
 
 extern IRQController pic8259_irq_controller;
 extern DriverBase pic8259_driver;
+
+extern void pic8259_master_default_isr();
+extern void pic8259_slave_default_isr();
 
 static inline uint8_t get_active_slave_irq() {
     // Slave PIC Command Port = 0xA0
@@ -29,8 +33,6 @@ bool pic8259_init() {
     // Master PIC Command Port = 0x20
     // Slave PIC Command Port = 0xA0
 
-    irq_controller = &pic8259_irq_controller;
-
     // 1. PIC'leri resetle
     outb(0x20, 0x11); // Master PIC
     outb(0xA0, 0x11); // Slave PIC
@@ -40,7 +42,8 @@ bool pic8259_init() {
     outb(0xA0, 0x28); // Slave PIC IRQ başlangıç vektörü
 
     // 3. Slave PIC'i Master'a bağla
-    outb(0xA0, 0x04); // Slave PIC'in Master'a bağlı olduğunu belirt
+    outb(0x21, 0x04);  // Master PIC: Slave on IRQ2
+    outb(0xa1, 0x02);  // Slave PIC: Cascade identity
 
     // 4. Modu ayarla (8086/88 mod)
     outb(0x20, 0x01); // Master PIC
@@ -50,12 +53,27 @@ bool pic8259_init() {
     outb(0x21, 0xFF); // Master PIC maskesi
     outb(0xA1, 0xFF); // Slave PIC maskesi
 
+    for (uint8_t i = 0; i < 8; i++) {
+        idt_set_gate(32 + i, (uintptr_t)pic8259_master_default_isr); // Master PIC için varsayılan ISR
+    }
+
+    for (uint8_t i = 0; i < 8; i++) {
+        idt_set_gate(40 + i, (uintptr_t)pic8259_slave_default_isr); // Slave PIC için varsayılan ISR
+    }
+
+    // Send EOI command to both PICs
+    outb(0x20, 0x20); // Master PIC EOI
+    outb(0xA0, 0x20); // Slave PIC EOI
+
+    irq_controller = &pic8259_irq_controller;
+    pic8259_driver.enabled = true;
+
     return true;
 
 }
 
-static uint8_t master_mask;
-static uint8_t slave_mask;
+static uint8_t master_mask = 0xFF; // Master PIC maskesi
+static uint8_t slave_mask = 0xFF; // Slave PIC maskesi
 
 void pic8259_enable() {
 
@@ -148,18 +166,44 @@ bool pic8259_is_enabled(uint32_t irq) {
 void pic8259_register_handler(uint32_t irq, void (*handler)(void)) {
     // PIC8259'da IRQ handler kaydetme işlemi genellikle desteklenmez
     // Bu fonksiyon boş bırakılabilir veya hata verebilir
-    idt_set_gate(irq, (uintptr_t)handler); // 0x8E = Present, DPL=0, Type=Interrupt Gate
+    // Donanım IRQ'ları, PIC remap sırasında 0x20 (master) ve 0x28 (slave)
+    // taban vektörlerine taşınır. Doğru IDT girişini programlamak için
+    // gerçek CPU vektörünü hesaplayın.
+
+    if (irq > 16)
+    {
+        ERROR("Invalid IRQ number for registration: %u", irq);
+        return; // Geçersiz IRQ numarası
+    }
+
+    idt_set_gate(32 + irq, (uintptr_t)handler); // 0x8E = Present, DPL=0, Type=Interrupt Gate
 }
 
 void pic8259_unregister_handler(uint32_t irq) {
     // PIC8259'da IRQ handler kaldırma işlemi genellikle desteklenmez
     // Bu fonksiyon boş bırakılabilir veya hata verebilir
+    if (irq < 8) idt_set_gate(32 + irq, (uintptr_t)pic8259_master_default_isr); // Varsayılan ISR'yi ayarla
+    else
+    if (irq < 16) idt_set_gate(32 + irq, (uintptr_t)pic8259_slave_default_isr); // Varsayılan ISR'yi ayarla
+    else {
+        ERROR("Invalid IRQ number for unregistration: %u", irq);
+        return; // Geçersiz IRQ numarası
+    }
 }
 
 // IRQ controller wrapper fonksiyonu
 static inline void pic8259_init_irq_controller() {
     // IRQ kontrolcüsünü başlatma işlemleri
     pic8259_init();
+}
+
+void pic8259_irq2_isr_handler() {
+    // IRQ2 için özel ISR
+    // Slave PIC'den gelen IRQ'ları işleme
+    uint8_t active_irq = get_active_slave_irq();
+    
+    pic8259_irq2_isr_addr = idt_get_gate(32 + active_irq);
+
 }
 
 DriverBase pic8259_driver = {

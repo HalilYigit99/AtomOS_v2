@@ -44,6 +44,15 @@ void idt_set_gate(uint8_t vector, size_t offset)
 	idt[vector].zero        = 0;
 }
 
+size_t idt_get_gate(uint8_t vector) {
+
+	size_t offset = ((size_t)idt[vector].offset_high << 32) |
+	                ((size_t)idt[vector].offset_mid << 16) |
+	                idt[vector].offset_low;
+
+	return offset;
+}
+
 void idt_reset_gate(uint8_t vector)
 {
 	idt_set_gate(vector, (size_t)(uintptr_t)idt_default_isr_amd64);

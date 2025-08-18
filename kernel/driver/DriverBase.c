@@ -24,11 +24,11 @@ void system_driver_register(DriverBase* driver) {
 
     if (driver->init) {
         if (!driver->init()) {
-            ERROR("Failed to initialize driver: %s", driver->name);
+            ERROR("Failed to initialize driver: '%s'", driver->name);
             return;
         }
     } else {
-        WARN("Driver %s does not have an init function.", driver->name);
+        WARN("Driver '%s' does not have an init function.", driver->name);
     }
 
 }
@@ -46,7 +46,7 @@ void system_driver_unregister(DriverBase* driver) {
 
     // Assuming List_Remove is a function that removes an item from the list
     if (!List_Remove(system_driver_list, driver)) {
-        ERROR("Failed to unregister driver: %s", driver->name);
+        ERROR("Failed to unregister driver: '%s'", driver->name);
     }
 }
 
@@ -60,9 +60,9 @@ void system_driver_enable(DriverBase* driver)
 
     if (driver->enable) {
         driver->enable();
-        LOG("Driver %s enabled.", driver->name);
+        LOG("Driver '%s' enabled.", driver->name);
     }else {
-        WARN("Driver %s does not have an enable function.", driver->name);
+        WARN("Driver '%s' does not have an enable function.", driver->name);
     }
 }
 
@@ -75,8 +75,8 @@ void system_driver_disable(DriverBase* driver)
 
     if (driver->disable) {
         driver->disable();
-        LOG("Driver %s disabled.", driver->name);
+        LOG("Driver '%s' disabled.", driver->name);
     } else {
-        WARN("Driver %s does not have a disable function.", driver->name);
+        WARN("Driver '%s' does not have a disable function.", driver->name);
     }
 }

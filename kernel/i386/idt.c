@@ -29,6 +29,13 @@ void idt_set_gate(uint8_t vector, size_t offset)
     idt[vector].type_attr   = 0x8E;    // Present | DPL=0 | 32-bit interrupt gate (0xE)
 }
 
+size_t idt_get_gate(uint8_t vector)
+{
+    size_t offset = ((size_t)idt[vector].offset_high << 16) |
+                    idt[vector].offset_low;
+    return offset;
+}
+
 void idt_reset_gate(uint8_t vector)
 {
     idt_set_gate(vector, (size_t)(uintptr_t)idt_default_isr);

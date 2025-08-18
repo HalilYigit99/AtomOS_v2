@@ -19,6 +19,8 @@ extern "C" {
 void idt_set_gate(uint8_t vector, size_t offset);
 void idt_reset_gate(uint8_t vector);
 
+size_t idt_get_gate(uint8_t vector);
+
 // Common port I/O interface (architecture-specific implementation)
 extern uint8_t  inb(uint16_t port);
 extern void     outb(uint16_t port, uint8_t value);

@@ -89,11 +89,6 @@ static bool ps2kbd_init(void) {
         return false;
     }
 
-    // Register the PS/2 keyboard input stream
-    if (keyboardInputStreamList == NULL) {
-        keyboardInputStreamList = List_Create();
-    }
-
     LOG("Initializing PS/2 keyboard...\n");
 
     // Önce ortak controller'ın başlatıldığından emin ol
@@ -167,7 +162,7 @@ static bool ps2kbd_init(void) {
     config &= ~PS2_CONFIG_PORT1_CLOCK; // Klavye clock'u etkinleştir
     ps2_controller_set_config(config);
 
-    irq_controller->register_handler(IRQ_PS2_KEYBOARD, ps2kbd_handler);
+    irq_controller->register_handler(IRQ_PS2_KEYBOARD, ps2kbd_isr);
 
     // PIC'de IRQ1'i unmask et
     irq_controller->enable(1); // IRQ1 için PIC'de unmask
@@ -211,6 +206,8 @@ extern void __ps2kbd_tr_qwerty_handle(uint8_t scancode);
 extern void __ps2kbd_tr_f_handle(uint8_t scancode);
 
 void ps2kbd_handler() {
+
+    LOG("Interrupt raised!");
 
     if (!ps2_event_buffer) {
         return;
