@@ -143,9 +143,8 @@ bool ps2mouse_init(void) {
     LOG("PS/2 Mouse: Setting up IRQ12 handler...\n");
     irq_controller->register_handler(12, ps2mouse_isr);
     
-    // PIC'de IRQ12'yi unmask et
-    LOG("PS/2 Mouse: Unmasking IRQ12...\n");
-    irq_controller->enable(12);
+    // PIC'de IRQ12'yi mask et
+    irq_controller->disable(12);
     
     // Son config kontrolü
     config = ps2_controller_get_config();
@@ -173,15 +172,12 @@ bool ps2mouse_init(void) {
     // Son config durumu
     config = ps2_controller_get_config();
     LOG("PS/2 Mouse: Final config: 0x%02X (should be 0x03 or similar)\n", config);
-    
-    LOG("PS/2 mouse initialized! Waiting for interrupts...\n");
 
     return true;
 }
 
 void ps2mouse_enable(void) {
     if (!enabled) {
-        LOG("PS/2 Mouse: Enabling...\n");
         
         // Data reporting'i tekrar aç (emin olmak için)
         ps2mouse_send_command_to_device(PS2_MOUSE_CMD_ENABLE_REPORTING);

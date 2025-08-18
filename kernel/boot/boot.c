@@ -60,40 +60,10 @@ void __boot_kernel_start(void)
     LOG("Loading HID drivers...");
 
     system_driver_register(&ps2kbd_driver);
-    // system_driver_register(&ps2mouse_driver);
+    system_driver_register(&ps2mouse_driver);
 
     system_driver_enable(&ps2kbd_driver);
-    // system_driver_enable(&ps2mouse_driver);
-
-    asm volatile ("sti"); // Enable interrupts
-
-    // Test HID devices
-
-    int cursor_last_x = cursor_X;
-    int cursor_last_y = cursor_Y;
-
-    // Clear keyboard input buffer
-    while (keyboardInputStream.available()) {
-        char c;
-        keyboardInputStream.readChar(&c);
-    }
-
-    while (1) 
-    {
-
-        if (cursor_last_x != cursor_X || cursor_last_y != cursor_Y) {
-            LOG("Mouse moved to: (%d, %d)", cursor_X, cursor_Y);
-            cursor_last_x = cursor_X;
-            cursor_last_y = cursor_Y;
-        }
-
-        if (keyboardInputStream.available()) {
-            char c;
-            keyboardInputStream.readChar(&c);
-            LOG("Key pressed: '%c' (ASCII: %d)", c, c);
-        }
-
-    }
+    system_driver_enable(&ps2mouse_driver);
 
 }
 

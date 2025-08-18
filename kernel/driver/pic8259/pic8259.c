@@ -99,6 +99,7 @@ void pic8259_disable() {
 }
 
 void pic8259_enable_irq(uint32_t irq) {
+    LOG("Enabling IRQ %u", irq);
     if (irq > 15) {
         return; // Geçersiz IRQ numarası
     }
@@ -114,6 +115,7 @@ void pic8259_enable_irq(uint32_t irq) {
 }
 
 void pic8259_disable_irq(uint32_t irq) {
+    LOG("Disabling IRQ %u", irq);
     if (irq > 15) {
         return; // Geçersiz IRQ numarası
     }
@@ -170,6 +172,8 @@ void pic8259_register_handler(uint32_t irq, void (*handler)(void)) {
     // taban vektörlerine taşınır. Doğru IDT girişini programlamak için
     // gerçek CPU vektörünü hesaplayın.
 
+    LOG("Registering handler for IRQ %u", irq);
+
     if (irq > 16)
     {
         ERROR("Invalid IRQ number for registration: %u", irq);
@@ -180,8 +184,9 @@ void pic8259_register_handler(uint32_t irq, void (*handler)(void)) {
 }
 
 void pic8259_unregister_handler(uint32_t irq) {
-    // PIC8259'da IRQ handler kaldırma işlemi genellikle desteklenmez
-    // Bu fonksiyon boş bırakılabilir veya hata verebilir
+
+    LOG("Unregistering handler for IRQ %u", irq);
+
     if (irq < 8) idt_set_gate(32 + irq, (uintptr_t)pic8259_master_default_isr); // Varsayılan ISR'yi ayarla
     else
     if (irq < 16) idt_set_gate(32 + irq, (uintptr_t)pic8259_slave_default_isr); // Varsayılan ISR'yi ayarla
