@@ -38,8 +38,8 @@ bool pic8259_init() {
     outb(0xA0, 0x11); // Slave PIC
 
     // 2. IRQ tablosunu ayarla
-    outb(0x20, 0x20); // Master PIC IRQ başlangıç vektörü
-    outb(0xA0, 0x28); // Slave PIC IRQ başlangıç vektörü
+    outb(0x21, 0x20); // Master PIC IRQ başlangıç vektörü
+    outb(0xA1, 0x28); // Slave PIC IRQ başlangıç vektörü
 
     // 3. Slave PIC'i Master'a bağla
     outb(0x21, 0x04);  // Master PIC: Slave on IRQ2
