@@ -9,6 +9,7 @@ extern idt_init
 extern idt_ptr
 extern __boot_kernel_start
 extern detect_erms
+extern kmain
 
 _start:
 
@@ -44,6 +45,8 @@ _start:
     call __boot_kernel_start ; Call the boot kernel start function
 
     sti
+
+    call kmain ; Call the main kernel function
 
 .halt:
     hlt ; Halt the CPU

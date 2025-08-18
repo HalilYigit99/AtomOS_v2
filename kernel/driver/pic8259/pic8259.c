@@ -11,6 +11,8 @@ extern DriverBase pic8259_driver;
 extern void pic8259_master_default_isr();
 extern void pic8259_slave_default_isr();
 
+extern void pic8259_irq2();
+
 static inline uint8_t get_active_slave_irq() {
     // Slave PIC Command Port = 0xA0
     // OCW3: Read ISR (0x0B)
@@ -67,6 +69,9 @@ bool pic8259_init() {
 
     irq_controller = &pic8259_irq_controller;
     pic8259_driver.enabled = true;
+
+    pic8259_irq_controller.register_handler(2, pic8259_irq2); // Slave PIC için varsayılan ISR
+    pic8259_irq_controller.enable(2); // IRQ2'yi etkinleştir (Slave PIC)
 
     return true;
 
@@ -205,9 +210,19 @@ static inline void pic8259_init_irq_controller() {
 void pic8259_irq2_isr_handler() {
     // IRQ2 için özel ISR
     // Slave PIC'den gelen IRQ'ları işleme
+
+    LOG("IRQ2 ISR Handler called");
+
     uint8_t active_irq = get_active_slave_irq();
+
+    LOG("Handling IRQ2: Active IRQ = %u", active_irq);
     
-    pic8259_irq2_isr_addr = idt_get_gate(32 + active_irq);
+    if (active_irq >= 8 && active_irq < 16) pic8259_irq2_isr_addr = idt_get_gate(32 + active_irq);
+    else {
+        LOG("Invalid IRQ2 active IRQ: %u", active_irq);
+        pic8259_irq2_isr_addr = (size_t)(uintptr_t)pic8259_slave_default_isr;
+        return; // Geçersiz IRQ numarası
+    }
 
 }
 

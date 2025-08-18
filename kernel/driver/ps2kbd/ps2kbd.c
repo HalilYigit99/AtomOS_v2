@@ -164,8 +164,8 @@ static bool ps2kbd_init(void) {
 
     irq_controller->register_handler(IRQ_PS2_KEYBOARD, ps2kbd_isr);
 
-    // PIC'de IRQ1'i unmask et
-    irq_controller->enable(1); // IRQ1 için PIC'de unmask
+    // PIC'de IRQ1'i mask et
+    irq_controller->disable(1); // IRQ1 için PIC'de mask
 
     LOG("PS/2 keyboard driver initialized successfully.\n");
 
@@ -185,6 +185,7 @@ void ps2kbd_enable(void) {
         return;
     }
 
+    irq_controller->enable(IRQ_PS2_KEYBOARD); // IRQ1'i etkinleştir
     List_Add(keyboardInputStreamList, &ps2kbdInputStream);
     ps2kbd_driver.enabled = true;
     LOG("PS/2 keyboard driver enabled.\n");
@@ -214,6 +215,8 @@ void ps2kbd_handler() {
     }
 
     char scancode = inb(PS2_DATA_PORT);
+
+    LOG("Scancode received: 0x%02X", scancode);
 
     if (currentLayout == LAYOUT_US_QWERTY) {
         __ps2kbd_us_qwerty_handle(scancode);
