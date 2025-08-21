@@ -1,6 +1,7 @@
 #include <acpi/acpi.h>
 #include <acpi/acpi_old.h>
 #include <acpi/acpi_new.h>
+#include <acpi/fadt.h>
 
 #include <boot/multiboot2.h>
 #include <debug/debug.h>
@@ -17,6 +18,13 @@
  * Not: Bu aşamada fiziksel->sanal eşleme yardımı yok; düşük bellek alanlarının
  *      kimlik eşlendiğini (identity map) varsayıyoruz.
  */
+
+size_t acpi_version; // ACPI sürümü (1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
+
+void* acpi_fadt_ptr; /* FADT tablosu */
+void* acpi_madt_ptr; /* MADT tablosu */
+void* acpi_hpet_ptr; /* HPET tablosu */
+void* acpi_mcfg_ptr; /* MCFG tablosu */
 
 static inline uint8_t acpi_checksum8(const void* p, size_t len)
 {
@@ -118,6 +126,8 @@ void acpi_init(void)
 	struct multiboot_tag_new_acpi* tag_new = multiboot2_get_acpi_new();
 	struct multiboot_tag_old_acpi* tag_old = multiboot2_get_acpi_old();
 
+	acpi_version = 0; // Başlangıçta bilinmiyor
+
 	if (!tag_new && !tag_old) {
 		WARN("ACPI: Multiboot2 ACPI tags not found");
 		return;
@@ -162,6 +172,13 @@ void acpi_init(void)
 		}
 	}
 
+	/* ACPI sürümünü belirle */
+	if (rsdp_is_v2) {
+		acpi_version = rsdp_v2->Revision; // v2+
+	} else {
+		acpi_version = 1; // v1
+	}
+
 	LOG("ACPI: RSDP OK (Rev=%u, OEM=%c%c%c%c%c%c)",
 		rsdp_v1->Revision,
 		rsdp_v1->OEMID[0], rsdp_v1->OEMID[1], rsdp_v1->OEMID[2],
@@ -186,6 +203,31 @@ void acpi_init(void)
 
 	/* Kök tabloyu tara ve önemli tabloları keşfet */
 	acpi_scan_rsdt_xsdt(root, &found);
+
+	/* FADT ve MADT'yi global değişkenlere kopyala */
+	if (found.fadt) {
+		acpi_fadt_ptr = (void*)found.fadt;
+	} else {
+		ERROR("ACPI: FADT(FACP) not found");
+	}
+
+	if (found.madt) {
+		acpi_madt_ptr = (void*)found.madt;
+	} else {
+		ERROR("ACPI: MADT(APIC) not found");
+	}
+
+	if (found.hpet) {
+		acpi_hpet_ptr = (void*)found.hpet;
+	} else {
+		ERROR("ACPI: HPET not found");
+	}
+
+	if (found.mcfg) {
+		acpi_mcfg_ptr = (void*)found.mcfg;
+	} else {
+		ERROR("ACPI: MCFG not found");
+	}
 
 	/* Son durum raporu */
 	LOG("ACPI: Summary -> XSDT=%p RSDT=%p MADT=%p FADT=%p HPET=%p MCFG=%p",

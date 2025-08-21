@@ -2,25 +2,67 @@
 #include <keyboard/Keyboard.h>
 #include <mouse/mouse.h>
 #include <graphics/gfx.h>
+#include <graphics/bmp.h>
 #include <irq/IRQ.h>
+#include <time/timer.h>
 
 void gfx_draw_task();
 
+extern void acpi_poweroff(); // ACPI power off function
+
+extern unsigned char logo_128x128_bmp[];
+extern unsigned int logo_128x128_bmp_len;
+
 void __attribute__((optimize("O0"))) kmain() {
 
-    LOG("cursor_X: %d, cursor_Y: %d", cursor_X, cursor_Y);
+    gfx_clear_buffer(screen_buffer, (gfx_color){.argb = 0}); // Clear the hardware buffer with a black color
 
-    int last_cursor_X = cursor_X;
-    int last_cursor_Y = cursor_Y;
+    gfx_bitmap* bitmap = bmp_load_from_memory(logo_128x128_bmp, logo_128x128_bmp_len);
+    if (bitmap) {
+        // Signed ve güvenli merkez hesaplama
+        int x = ((int)screen_buffer->size.width - (int)bitmap->size.width) / 2;
+        int y = ((int)screen_buffer->size.height - (int)bitmap->size.height) / 2;
+
+        // Tamamen taşma durumunda erken dönüş yapan draw fonksiyonuna uygun olsun diye alt sınırı sıfıra sabitle
+        if (x < 0) x = 0;
+        if (y < 0) y = 0;
+
+        // Piksel verisini geç (struct değil)
+        gfx_draw_bitmap(screen_buffer, x, y, (void*)bitmap->pixels, bitmap->size.width, bitmap->size.height);
+        // bitmap belleği sadece tekrar ihtiyaç olmayacaksa serbest bırakılabilir
+        // bmp_free(bitmap);
+    } else {
+        LOG("Failed to load logo bitmap from memory");
+    }
+
+    pit_timer->setFrequency(30); // Set PIT timer frequency to 30Hz (30 ticks per second)
+
+    if (pit_timer){
+        pit_timer->add_callback(gfx_draw_task); // Add the cursor update task to the PIT timer callbacks
+        LOG("PIT timer callbacks registered");
+    }
+
+    // Clear keyboard input stream
+    while (keyboardInputStream.available())
+    {
+        char c;
+        keyboardInputStream.readChar(&c); // Read and discard characters
+    }
 
     while (1) {
-        if (last_cursor_X != cursor_X || last_cursor_Y != cursor_Y) {
-            LOG("Cursor moved: X=%d, Y=%d", cursor_X, cursor_Y);
-            last_cursor_X = cursor_X;
-            last_cursor_Y = cursor_Y;
-            gfx_draw_task(); // Call the graphics draw task to update the screen
-        }else asm volatile ("hlt"); // If no movement, halt the CPU to save power
+        
+        if (keyboardInputStream.available())
+        {
+            char c;
+            keyboardInputStream.readChar(&c); // Read the character from the keyboard input stream
+
+            if (c == 's')
+            {
+                // Shutdown the system
+                LOG("Shutting down the system...");
+                acpi_poweroff(); // Call the ACPI power off function
+            }
+        }else asm volatile ("hlt"); // No input, wait
     }
 
 }
-

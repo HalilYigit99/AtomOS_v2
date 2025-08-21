@@ -11,6 +11,7 @@
 extern DriverBase pic8259_driver;
 extern DriverBase ps2kbd_driver;
 extern DriverBase ps2mouse_driver;
+extern DriverBase pit_driver;
 
 extern uint32_t mb2_signature;
 extern uint32_t mb2_tagptr;
@@ -56,6 +57,10 @@ void __boot_kernel_start(void)
     // INFO: APIC is not implemented yet, so we will use PIC for now.
     system_driver_register(&pic8259_driver);
     system_driver_enable(&pic8259_driver);
+
+    // PIT (system tick)
+    system_driver_register(&pit_driver);
+    system_driver_enable(&pit_driver);
 
     // Enable HID drivers
     LOG("Loading HID drivers...");

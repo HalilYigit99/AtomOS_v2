@@ -95,6 +95,16 @@ void pmm_make_usable_region(size_t addr_1, size_t addr_2) {
     addr_1 = align_down(addr_1, 4096);
     addr_2 = align_up(addr_2, 4096);
 
+    if (addr_1 >= machine_ramSizeInKB * 1024u) {
+        ERROR("pmm_make_usable_region: addr_1 is beyond RAM limit: %p", (void*)addr_1);
+        return; // RAM sınırını aşma, bu durumda hiçbir şey yapma
+    }
+
+    if (addr_2 >= machine_ramSizeInKB * 1024u) {
+        addr_2 = align_down(machine_ramSizeInKB * 1024u - 1, 4096); // RAM sınırını aşma
+        LOG("pmm_make_usable_region: addr_2 adjusted to RAM limit: %p", (void*)addr_2);
+    }
+
     for (size_t a = addr_1; a < addr_2; a += 4096u) {
         pmm_make_usable(a);
     }

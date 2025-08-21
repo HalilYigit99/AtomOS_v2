@@ -3,6 +3,7 @@ section .text
 global _start
 extern mb2_signature
 extern mb2_tagptr
+extern __stack_end
 
 extern gdtr_amd64
 extern idt_init
@@ -14,6 +15,8 @@ extern kmain
 _start:
 
     cli ; Clear interrupts
+
+    mov esp, __stack_end ; Set up the stack pointer
 
     mov [mb2_signature], eax
     mov [mb2_tagptr], ebx

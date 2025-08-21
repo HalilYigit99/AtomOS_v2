@@ -8,10 +8,23 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 
+typedef enum {
+    MemoryRegionType_NULL = 0,
+    MemoryRegionType_USABLE = 1,
+    MemoryRegionType_RESERVED = 2,
+    MemoryRegionType_EFI_CODE = 3,
+    MemoryRegionType_EFI_DATA = 4,
+    MemoryRegionType_ACPI_RECLAIMABLE = 5,
+    MemoryRegionType_ACPI_NVS = 6,
+    MemoryRegionType_BAD_MEMORY = 7,
+    MemoryRegionType_PCI_RESOURCE = 8
+    // Add more types as needed
+} MemoryRegionType;
+
 typedef struct {
     size_t base;     // Base address of the memory region
     size_t size;     // Size of the memory region in bytes
-    bool is_free;    // Indicates if the memory region is free
+    MemoryRegionType type; // Type of the memory region
 } MemoryRegion;
 
 #ifdef __cplusplus

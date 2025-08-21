@@ -200,7 +200,6 @@ void* heap_alloc(Heap* heap, size_t n) {
     while (region) {
         void* ptr = heap_alloc_in_region(region, n);
         if (ptr) {
-            LOG("Allocated %zu bytes at %p in region %p", n, ptr, (void*)region);
             return ptr;
         }
         region = region->next;

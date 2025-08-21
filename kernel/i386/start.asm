@@ -9,6 +9,7 @@ extern __boot_kernel_start
 extern gdtr_i386
 extern detect_erms
 extern kmain
+extern __stack_end
 
 extern page_directory
 extern paging_init
@@ -16,6 +17,8 @@ extern paging_init
 _start:
 
     cli ; Clear interrupts
+
+    mov esp, __stack_end ; Set up the stack pointer
 
     mov [mb2_signature], eax
     mov [mb2_tagptr], ebx

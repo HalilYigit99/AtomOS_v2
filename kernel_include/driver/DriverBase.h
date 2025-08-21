@@ -16,6 +16,8 @@ typedef enum {
     DRIVER_TYPE_GRAPHICS = 4,   // Graphics devices (e.g., GPUs)
     DRIVER_TYPE_FILESYSTEM = 5, // Filesystem drivers
     DRIVER_TYPE_AUDIO = 6,      // Audio devices
+    DRIVER_TYPE_TIMER = 7,      // Timer devices
+    DRIVER_TYPE_POWER = 8,      // Power management devices
 } DriverType;
 
 typedef struct {

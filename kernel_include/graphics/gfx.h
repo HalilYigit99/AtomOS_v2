@@ -28,6 +28,8 @@ void gfx_fill_triangle(gfx_buffer* buffer, int x1, int y1, int x2, int y2, int x
 // Gelecekte eklenecek: GFX_FONT_VECTOR, GFX_FONT_PSF, GFX_FONT_TTF, GFX_FONT_OTF
 void gfx_draw_char(gfx_buffer* buffer, int x, int y, char c, gfx_color color, gfx_font* font);
 void gfx_draw_text(gfx_buffer* buffer, int x, int y, char* text, gfx_color color, gfx_font* font);
+
+
 void gfx_draw_bitmap(gfx_buffer* buffer, int x, int y, void* bitmap, size_t width, size_t height);
 
 

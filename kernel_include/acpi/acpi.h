@@ -77,6 +77,13 @@ const struct acpi_sdt_header* acpi_get_fadt(void);
 const struct acpi_hpet* acpi_get_hpet(void);
 const struct acpi_sdt_header* acpi_get_mcfg(void);
 
+extern size_t acpi_version; /* ACPI sürümü (1.0, 2.0, 3.0, 4.0, 5.0, 6.0) */
+
+extern void* acpi_fadt_ptr; /* FADT tablosu */
+extern void* acpi_madt_ptr; /* MADT tablosu */
+extern void* acpi_hpet_ptr; /* HPET tablosu */
+extern void* acpi_mcfg_ptr; /* MCFG tablosu */
+
 #ifdef __cplusplus
 }
 #endif
