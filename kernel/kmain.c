@@ -1,4 +1,5 @@
 #include <debug/debug.h>
+#include <boot/multiboot2.h>
 #include <keyboard/Keyboard.h>
 #include <mouse/mouse.h>
 #include <graphics/gfx.h>
@@ -14,6 +15,10 @@ extern unsigned char logo_128x128_bmp[];
 extern unsigned int logo_128x128_bmp_len;
 
 void __attribute__((optimize("O0"))) kmain() {
+
+    LOG("Welcome to AtomOS!");
+    LOG("Booted in %s mode", mb2_is_efi_boot ? "EFI" : "BIOS");
+    LOG("Framebuffer: %ux%u, %u bpp", mb2_framebuffer->framebuffer_width, mb2_framebuffer->framebuffer_height, mb2_framebuffer->framebuffer_bpp);
 
     gfx_clear_buffer(screen_buffer, (gfx_color){.argb = 0}); // Clear the hardware buffer with a black color
 

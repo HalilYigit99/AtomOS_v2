@@ -128,7 +128,16 @@ void gfx_draw_pixel(gfx_buffer *buffer, int x, int y, gfx_color color)
         return;
 
     volatile gfx_color *pixel = (volatile gfx_color *)((size_t)buffer->buffer + (y * buffer->size.width + x) * sizeof(uint32_t));
-    pixel->argb = color.argb;
+    if (buffer->bpp == 32) pixel->argb = color.argb;
+    else 
+    if (buffer->bpp == 24) {
+        // 24 bpp için sadece RGB bileşenlerini ayarla, alfa bileşeni yok
+        ((uint8_t*)pixel)[0] = color.b; // Blue
+        ((uint8_t*)pixel)[1] = color.g; // Green
+        ((uint8_t*)pixel)[2] = color.r; // Red
+    }else {
+        WARN("Unsupported buffer bpp: %u", buffer->bpp);
+    }
     buffer->isDirty = true;
 }
 
@@ -433,8 +442,71 @@ void gfx_clear_buffer(gfx_buffer *buffer, gfx_color color)
 
 extern void __mouse_draw();
 
-static int cursor_last_X;
-static int cursor_last_Y;
+static void gfx_draw_bpp32()
+{
+    gfx_buffer *buffer = (gfx_buffer *)List_GetAt(gfx_buffers, List_Size(gfx_buffers) - 1);
+    if (!buffer)
+        return; // No buffer to draw
+
+    if (buffer->size.width == 0 || buffer->size.height == 0)
+    {
+        ERROR("Buffer size is zero, cannot draw");
+        return;
+    }
+
+    if (buffer->size.width == hardware_buffer->size.width &&
+        buffer->size.height == hardware_buffer->size.height &&
+        buffer->bpp == hardware_buffer->bpp)
+    {
+        // If the buffer size and bpp match, we can copy directly
+        memcpy((void *)hardware_buffer->buffer, (void *)buffer->buffer, buffer->size.width * buffer->size.height * sizeof(uint32_t));
+    }
+    else
+    {
+        size_t width = buffer->size.width < screen_width ? buffer->size.width : screen_width;
+        size_t height = buffer->size.height < screen_height ? buffer->size.height : screen_height;
+
+        for (size_t y = 0; y < height; y++)
+        {
+            memcpy(
+                (void *)((size_t)hardware_buffer->buffer + (y * hardware_buffer->size.width * sizeof(uint32_t))),
+                (void *)((size_t)buffer->buffer + (y * buffer->size.width * sizeof(uint32_t))),
+                width * sizeof(uint32_t));
+        }
+    }
+}
+
+static void gfx_draw_bpp24()
+{
+    gfx_buffer *buffer = (gfx_buffer *)List_GetAt(gfx_buffers, List_Size(gfx_buffers) - 1);
+
+    if (!buffer)
+        return; // No buffer to draw
+
+    if (buffer->size.width == 0 || buffer->size.height == 0)
+    {
+        ERROR("Buffer size is zero, cannot draw");
+        return;
+    }
+
+    memset((void *)hardware_buffer->buffer, 0, hardware_buffer->size.width * hardware_buffer->size.height * 3); // Clear hardware buffer
+
+    size_t width = buffer->size.width < screen_width ? buffer->size.width : screen_width;
+    size_t height = buffer->size.height < screen_height ? buffer->size.height : screen_height;
+
+    for (size_t y = 0; y < height; y++)
+    {
+        for (size_t x = 0; x < width; x++)
+        {
+            gfx_color pixel = ((gfx_color *)buffer->buffer)[y * buffer->size.width + x];
+            size_t fb_index = (y * hardware_buffer->size.width + x) * 3; // 3 bytes per pixel for 24bpp
+
+            ((uint8_t *)hardware_buffer->buffer)[fb_index + 0] = pixel.b; // Blue
+            ((uint8_t *)hardware_buffer->buffer)[fb_index + 1] = pixel.g; // Green
+            ((uint8_t *)hardware_buffer->buffer)[fb_index + 2] = pixel.r; // Red
+        }
+    }
+}
 
 void gfx_draw_task()
 {
@@ -454,42 +526,21 @@ void gfx_draw_task()
     }
     else
     {
-        gfx_buffer *buffer = (gfx_buffer *)List_GetAt(gfx_buffers, List_Size(gfx_buffers) - 1);
-        if (!buffer)
-            return; // No buffer to draw
-
-        if (buffer->size.width == 0 || buffer->size.height == 0)
+        if (mb2_framebuffer->framebuffer_bpp == 32)
         {
-            ERROR("Buffer size is zero, cannot draw");
-            return;
+            gfx_draw_bpp32();
         }
-
-        if (buffer->size.width == hardware_buffer->size.width &&
-            buffer->size.height == hardware_buffer->size.height &&
-            buffer->bpp == hardware_buffer->bpp)
+        else if (mb2_framebuffer->framebuffer_bpp == 24)
         {
-            // If the buffer size and bpp match, we can copy directly
-            memcpy((void *)hardware_buffer->buffer, (void *)buffer->buffer, buffer->size.width * buffer->size.height * sizeof(uint32_t));
+            gfx_draw_bpp24();
         }
         else
         {
-            size_t width = buffer->size.width < screen_width ? buffer->size.width : screen_width;
-            size_t height = buffer->size.height < screen_height ? buffer->size.height : screen_height;
-
-            for (size_t y = 0; y < height; y++)
-            {
-                memcpy(
-                    (void *)((size_t)hardware_buffer->buffer + (y * hardware_buffer->size.width * sizeof(uint32_t))),
-                    (void *)((size_t)buffer->buffer + (y * buffer->size.width * sizeof(uint32_t))),
-                    width * sizeof(uint32_t));
-            }
+            ERROR("Unsupported framebuffer bpp: %u", mb2_framebuffer->framebuffer_bpp);
         }
     }
 
     // Draw mouse cursor
 
-    if (cursor_last_X != cursor_X || cursor_last_Y != cursor_Y) __mouse_draw();
-
-    cursor_last_X = cursor_X;
-    cursor_last_Y = cursor_Y;
+    __mouse_draw();
 }

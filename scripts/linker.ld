@@ -52,6 +52,14 @@ SECTIONS
         . = . + 0x4000; /* 16KB stack */
         __stack_end = .;
     }
+
+    /* Local heap for first initialize */
+    .localHeap : ALIGN(4K)
+    {
+        __local_heap_start = .;
+        . = . + 0x400000; /* 4 MB */
+        __local_heap_end = .;
+    }
     
     /* Text section boundaries */
     __text_start = ADDR(.text);

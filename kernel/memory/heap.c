@@ -1,325 +1,228 @@
+#include <memory/memory.h>
 #include <memory/heap.h>
 #include <memory/pmm.h>
-#include <boot/multiboot2.h>
-#include <debug/debug.h>
-#include <util/string.h>
 
-Heap kernel_heap = {0};
+#define HEAP_MAGIC 0xDEADBEEF
+#define HEAP_NODE_MIN_SIZE (sizeof(size_t) * 2)
 
-extern void* __kernel_end;
+typedef struct HeapNode
+{
+    uint32_t magic; // Magic number for validation
+    bool is_free; // Flag to indicate if the block is free
+    struct HeapNode* next; // Pointer to the next node in the free list
+} HeapNode;
 
-static HeapRegion firstRegion;
+#define NODE_SIZE(node) (node->next ? ((size_t)node->next - (size_t)node - sizeof(HeapNode)) : 0)
 
-// Küçük kuyruk parçalarını engellemek için minimum bölme artığı
-#define HEAP_MIN_SPLIT_REMAINDER 16
+// Linker-provided symbols that delimit the local heap region
+// Declare as arrays to avoid array-bounds warnings and allow taking addresses safely.
+extern uint8_t __local_heap_start[];
+extern uint8_t __local_heap_end[];
 
-void* heap_alloc_in_region(HeapRegion* region, size_t size) {
-    HeapNode* current = region->firstNode;
-    while (current) {
-        // Liste bütünlüğü kontrolü
-        if (current->magic != HEAP_NODE_MAGIC) {
-            ERROR("heap: corrupted node header at %p", (void*)current);
-            return NULL;
-        }
+HeapRegion* first_heap_region = NULL;
 
-        HeapNode* next = current->next;
-        if (next && next->magic != HEAP_NODE_MAGIC) {
-            ERROR("heap: corrupted next header at %p", (void*)next);
-            return NULL;
-        }
+HeapRegion localHeapRegion;
 
-        if (!current->allocated && next) {
-            size_t capacity = (size_t)((uint8_t*)next - (uint8_t*)current) - sizeof(HeapNode);
-            if (capacity >= size) {
-                // Bölme kararını ver
-                if (capacity >= size + sizeof(HeapNode) + HEAP_MIN_SPLIT_REMAINDER) {
-                    // Yeni boş düğüm oluştur
-                    uint8_t* payload = (uint8_t*)current + sizeof(HeapNode);
-                    HeapNode* newNode = (HeapNode*)(payload + size);
-                    newNode->allocated = false;
-                    newNode->next = next;
-                    newNode->magic = HEAP_NODE_MAGIC;
+static void initRegion(HeapRegion* region)
+{
+    if (region == NULL) return;
 
-                    current->next = newNode;
-                    current->allocated = true;
-                    return (void*)payload;
-                } else {
-                    // Tüm bloğu tahsis et (kalan küçük kuyruk kullanılamaz)
-                    current->allocated = true;
-                    return (void*)((uint8_t*)current + sizeof(HeapNode));
-                }
+    if (region->base == 0 || region->size == 0) return;
+
+    // Require at least room for a head node and a terminal end node
+    if (region->size < 2 * sizeof(HeapNode)) return;
+
+    HeapNode* initial_node = (HeapNode*)region->base;
+    HeapNode* end_node = (HeapNode*)(region->base + region->size - sizeof(HeapNode));
+
+    initial_node->magic = (uint32_t)HEAP_MAGIC;
+    initial_node->is_free = true;
+    initial_node->next = end_node;
+
+    end_node->magic = 0; // Mark the end node with a magic value of 0
+    end_node->next = NULL;
+    end_node->is_free = false; // End node is not free
+
+}
+
+static void* alloc_region(HeapRegion* region, size_t size)
+{
+    HeapNode* node = (HeapNode*)(region->base);
+    while (node && node->magic == HEAP_MAGIC)
+    {
+        
+        if (node->is_free && NODE_SIZE(node) >= size)
+        {
+            size_t remaining_size = NODE_SIZE(node) - size;
+            if (remaining_size >= HEAP_NODE_MIN_SIZE + sizeof(HeapNode))
+            {
+                // Split the block
+                HeapNode* new_node = (HeapNode*)((char*)node + size + sizeof(HeapNode));
+                new_node->magic = HEAP_MAGIC;
+                new_node->is_free = true;
+                new_node->next = node->next;
+
+                node->is_free = false;
+                node->next = new_node;
+
+                return (void*)((char*)node + sizeof(HeapNode));
+            }
+            else
+            {
+                // Use the entire block
+                node->is_free = false;
+                return (void*)((char*)node + sizeof(HeapNode));
             }
         }
-        current = current->next;
+        // Advance to next node when not returning above
+        node = node->next;
     }
+
     return NULL; // No suitable block found
 }
 
-void heap_free_in_region(HeapRegion* region, void* ptr) {
-    if (!ptr) return;
+static bool free_region(HeapRegion* region, void* ptr)
+{
+    if (ptr == NULL) return false;
 
-    HeapNode* node = (HeapNode*)region->firstNode;
+    HeapNode* node = (HeapNode*)region->base;
     HeapNode* prev = NULL;
 
-    // Sahip düğümü tara
-    while (node && node->magic == HEAP_NODE_MAGIC) {
-        if ((void*)node < ptr && node->next && (void*)node->next > ptr) {
-            break; // Found the owner node
+    while (node && node->magic == HEAP_MAGIC)
+    {
+        if (
+            (size_t)node < (size_t)ptr &&
+            (size_t)ptr < (size_t)node->next
+        )
+        {
+            node->is_free = true;
+
+            // Coalesce with next node if it's free
+            if (node->next && node->next->is_free)
+            {
+                node->next = node->next->next;
+            }
+
+            // If have previous node and it's free, coalesce with it
+            if (prev && prev->is_free)
+            {
+                prev->next = node->next;
+                prev->is_free = true;
+                prev->magic = HEAP_MAGIC;
+            }
+
+            return true;
         }
         prev = node;
         node = node->next;
     }
 
-    if (!node || node->magic != HEAP_NODE_MAGIC) {
-        ERROR("heap_free: pointer %p does not belong to region %p", ptr, (void*)region);
-        return;
-    }
-
-    // Serbest bırak
-    node->allocated = false;
-
-    // İleri doğru tam koalesce
-    while (node->next && node->next->magic == HEAP_NODE_MAGIC && !node->next->allocated) {
-        node->next = node->next->next;
-    }
-
-    // Geriye doğru koalesce (prev de boşsa birleştir)
-    if (prev && prev->magic == HEAP_NODE_MAGIC && !prev->allocated) {
-        // prev ile node (ve node'un ileri zinciri) birleşsin
-        prev->next = node->next;
-    }
+    return false;
 }
 
-void heap_init_region(HeapRegion* region) {
+void heap_init()
+{
+    localHeapRegion.base = (size_t)(uintptr_t)__local_heap_start;
+    localHeapRegion.size = (size_t)((uintptr_t)__local_heap_end - (uintptr_t)__local_heap_start);
+    localHeapRegion.next = NULL;
 
-    HeapNode* firstNode = (HeapNode*)region->firstNode;
-    HeapNode* endNode = (HeapNode*)((uint8_t*)region->firstNode + region->size - sizeof(HeapNode));
+    first_heap_region = &localHeapRegion;
 
-    firstNode->allocated = false;
-    firstNode->next = endNode;
-    firstNode->magic = HEAP_NODE_MAGIC;
-
-    endNode->allocated = true; // Sentinel node
-    endNode->next = NULL;
-    endNode->magic = HEAP_NODE_MAGIC;
+    initRegion(&localHeapRegion);
 
 }
 
-void heap_init() {
+void* heap_alloc(size_t n) {
+    if (n <= 0) return NULL;
 
-    LOG("Initializing kernel heap");
-
-    LOG("Kernel end address: %p", (void*)&__kernel_end);
-
-    uint32_t memoryRegionCount = 0;
-    struct multiboot_mmap_entry* entries = multiboot2_get_memory_map(&memoryRegionCount);
-
-    if (memoryRegionCount == 0) {
-        ERROR("No memory regions detected!!");
-        asm volatile ("cli; hlt");
+    if (first_heap_region == NULL) {
+        heap_init();
     }
 
-    size_t firstAvailableBase = 0;
-    size_t firstAvailableEnd = 0;
-    
-    const size_t kernelEnd = (size_t)&__kernel_end;
-    
-    for (size_t i = 0; i < memoryRegionCount; i++) {
-        struct multiboot_mmap_entry* entry = &entries[i];
-        if (entry->type == MULTIBOOT_MEMORY_AVAILABLE) {
-
-            size_t entryBase = (size_t)entry->addr;
-            size_t entryEnd = entryBase + (size_t)entry->len;
-
-            if (entryBase < kernelEnd)
-            {
-                if (entryEnd > kernelEnd) {
-                    entryBase = kernelEnd; // Adjust to start after kernel
-                    LOG("Adjusting memory region base to start after kernel: %p", entryBase);
-                } else {
-                    LOG("Skipping memory region ( base: %p, end: %p ): lower or inside kernel", entryBase, entryEnd);
-                    continue; // Skip this region, it's entirely before the kernel
-                }
-            }
-
-            size_t regionSize = entryEnd - entryBase;
-
-            if (regionSize < 4 * 1024 * 1024) {
-                LOG("Skipping memory region ( base: %p, end: %p ): too small (%zu KB)", entryBase, entryEnd, regionSize / 1024);
-                continue; // Skip small regions
-            }
-
-            if (regionSize > 64 * 1024 * 1024)
-            {
-                entryEnd = entryBase + 64 * 1024 * 1024; // Limit to 64MB
-                LOG("Limiting memory region size to 64MB: %p", entryEnd);
-            }
-
-            firstAvailableBase = entryBase;
-            firstAvailableEnd = entryEnd;
-
-            break;
-
-        }
-    }
-
-    if (firstAvailableBase == 0 ||firstAvailableEnd == 0) {
-        ERROR("No suitable memory region found for heap initialization");
-        asm volatile ("cli; hlt");
-    }
-
-    size_t bytes = firstAvailableEnd - firstAvailableBase;
-
-    LOG("Using first available memory region: %p - %p", (void*)firstAvailableBase, (void*)firstAvailableEnd);
-    LOG("Region size: %zu KB ( %zu MB )", bytes / 1024, bytes / (1024 * 1024));
-
-    firstRegion.firstNode = (HeapNode*)firstAvailableBase;
-    firstRegion.size = firstAvailableEnd - firstAvailableBase;
-    firstRegion.next = NULL;
-
-    kernel_heap.firstRegion = &firstRegion;
-
-    heap_init_region(&firstRegion);
-
-    void* test = heap_alloc(&kernel_heap, 1024 * 1024); // Allocate 1MB for testing
-
-    if (!test) {
-        ERROR("Heap initialization failed: could not allocate test block");
-        asm volatile ("cli; hlt");
-    } else {
-        LOG("Heap initialized successfully, test allocation at %p", test);
-        heap_free(&kernel_heap, test); // Free the test allocation
-    }
-
-}
-
-void* heap_alloc(Heap* heap, size_t n) {
-    if (!heap || n == 0) return NULL;
-
-    HeapRegion* region = heap->firstRegion;
+    HeapRegion* region = first_heap_region;
     while (region) {
-        void* ptr = heap_alloc_in_region(region, n);
+        void* ptr = alloc_region(region, n);
         if (ptr) {
             return ptr;
         }
         region = region->next;
     }
 
-    ERROR("Failed to allocate %zu bytes from heap", n);
-    return NULL; // No suitable block found
+    return NULL; // No memory available
 }
 
-void heap_free(Heap* heap, void* ptr) {
-    if (!heap || !ptr) return;
+void heap_free(void* ptr) {
+    if (ptr == NULL) return;
 
-    HeapRegion* region = heap->firstRegion;
+    if (first_heap_region == NULL) {
+        heap_init();
+    }
+
+    HeapRegion* region = first_heap_region;
     while (region) {
-        if ((void*)region->firstNode <= ptr && (void*)((uint8_t*)region->firstNode + region->size) > ptr) {
-            heap_free_in_region(region, ptr);
-            return;
+        if (free_region(region, ptr)) {
+            return; // Successfully freed
         }
         region = region->next;
     }
-
-    ERROR("Pointer %p not found in any heap region", ptr);
 }
 
-void* heap_realloc(Heap* heap, void* ptr, size_t new_size) {
-    // Follow alloc/free semantics: if new_size==0, free and return NULL; if ptr==NULL, allocate new.
-    if (!heap) return NULL;
-    if (new_size == 0) {
-        if (ptr) heap_free(heap, ptr);
+void *heap_realloc(void* ptr, size_t new_size) {
+    if (new_size <= 0) {
+        heap_free(ptr);
         return NULL;
     }
-    if (!ptr) return heap_alloc(heap, new_size);
 
-    // Find the region and the containing node by scanning (same idea as heap_free).
-    HeapRegion* region = heap->firstRegion;
-    while (region) {
-        uint8_t* region_begin = (uint8_t*)region->firstNode;
-        uint8_t* region_end = region_begin + region->size;
-        if ((uint8_t*)ptr > region_begin && (uint8_t*)ptr < region_end) {
-            HeapNode* node = region->firstNode;
-            while (node && node->magic == HEAP_NODE_MAGIC) {
-                if ((void*)node < ptr && (void*)node->next > ptr) {
-                    break;
-                }
-                node = node->next;
-            }
-
-            if (!node || node->magic != HEAP_NODE_MAGIC || !node->allocated) {
-                ERROR("realloc: pointer %p does not refer to a valid allocated block", ptr);
-                return NULL;
-            }
-
-            size_t current_size = (size_t)((uint8_t*)node->next - (uint8_t*)node - sizeof(HeapNode));
-            if (new_size <= current_size) {
-                return ptr; // Already big enough
-            }
-
-            // Try to grow in-place by merging with next if it's free.
-            HeapNode* nxt = node->next;
-            if (nxt && nxt->magic == HEAP_NODE_MAGIC && !nxt->allocated && nxt->next) {
-                size_t merged_size = (size_t)((uint8_t*)nxt->next - (uint8_t*)node - sizeof(HeapNode));
-                if (merged_size >= new_size) {
-                    node->next = nxt->next; // consume the next free block entirely
-                    return ptr;
-                }
-            }
-
-            // Fallback: allocate new, copy, free old
-            void* new_ptr = heap_alloc(heap, new_size);
-            if (!new_ptr) {
-                ERROR("realloc: failed to allocate %zu bytes for %p", new_size, ptr);
-                return NULL;
-            }
-            // Copy out the old content up to current_size
-            memcpy(new_ptr, ptr, current_size);
-            heap_free(heap, ptr);
-            return new_ptr;
-        }
-        region = region->next;
+    if (ptr == NULL) {
+        return heap_alloc(new_size);
     }
 
-    ERROR("realloc: pointer %p not found in any heap region", ptr);
-    return NULL;
+    HeapNode* node = (HeapNode*)((char*)ptr - sizeof(HeapNode));
+    if (node->magic != HEAP_MAGIC) {
+        return NULL; // Invalid pointer
+    }
+
+    size_t old_size = NODE_SIZE(node);
+    if (new_size <= old_size) {
+        return ptr; // No need to reallocate
+    }
+
+    void* new_ptr = heap_alloc(new_size);
+    if (new_ptr) {
+        memcpy(new_ptr, ptr, old_size); // Copy old data to new location
+        heap_free(ptr); // Free old memory
+    }
+    
+    return new_ptr;
 }
 
-void* heap_calloc(Heap* heap, size_t count, size_t size) {
-    if (!heap || count == 0 || size == 0) return NULL;
-    // Detect overflow in multiplication
-    if (size != 0 && count > (SIZE_MAX / size)) {
-        ERROR("calloc: size overflow for count=%zu size=%zu", count, size);
-        return NULL;
+void *heap_calloc(size_t count, size_t size) {
+    if (count == 0 || size == 0) return NULL;
+
+    void* ptr = heap_alloc(count * size);
+    if (ptr) {
+        memset(ptr, 0, count * size); // Zero out the allocated memory
     }
-    size_t total = count * size;
-    void* ptr = heap_alloc(heap, total);
-    if (!ptr) {
-        ERROR("calloc: failed to allocate %zu bytes", total);
-        return NULL;
-    }
-    memset(ptr, 0, total);
+    
     return ptr;
 }
 
-void* heap_alloc_aligned(Heap* heap, size_t size, size_t alignment) {
-    // alignment must be power-of-two and non-zero; keep behavior aligned with heap_alloc/free
-    if (!heap || size == 0 || alignment == 0 || (alignment & (alignment - 1)) != 0) return NULL;
-
-    // Strategy: over-allocate, then bump the returned pointer to an aligned address within the same block.
-    // Freeing works because heap_free scans nodes and finds the owning node by range.
-    size_t request = size + (alignment - 1);
-    void* base = heap_alloc(heap, request);
-    if (!base) {
-        ERROR("aligned alloc: failed to allocate %zu bytes (req=%zu, align=%zu)", size, request, alignment);
-        return NULL;
+void* heap_aligned_alloc(size_t alignment, size_t size)
+{
+    if (alignment == 0 || size == 0 || (alignment & (alignment - 1)) != 0) {
+        return NULL; // Invalid alignment or size
     }
-    uintptr_t addr = (uintptr_t)base;
-    uintptr_t aligned = (addr + alignment - 1) & ~(alignment - 1);
-    return (void*)aligned;
-}
 
-// Backward-compat wrapper to match existing callers (alignment, size order)
-void* heap_aligned_alloc(Heap* heap, size_t alignment, size_t size) {
-    return heap_alloc_aligned(heap, size, alignment);
+    void* ptr = heap_alloc(size + alignment - 1 + sizeof(HeapNode));
+    if (!ptr) return NULL;
+
+    // Align the pointer
+    uintptr_t aligned_ptr = ((uintptr_t)ptr + sizeof(HeapNode) + alignment - 1) & ~(alignment - 1);
+    
+    HeapNode* node = (HeapNode*)((char*)aligned_ptr - sizeof(HeapNode));
+    node->magic = HEAP_MAGIC;
+    node->is_free = false;
+    node->next = NULL;
+
+    return (void*)aligned_ptr;
 }

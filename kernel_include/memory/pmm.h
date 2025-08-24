@@ -9,6 +9,7 @@ extern "C" {
 #include <stdbool.h>
 
 typedef enum {
+    MemoryRegionType_UNKNOWN = -1,
     MemoryRegionType_NULL = 0,
     MemoryRegionType_USABLE = 1,
     MemoryRegionType_RESERVED = 2,
@@ -21,7 +22,7 @@ typedef enum {
     // Add more types as needed
 } MemoryRegionType;
 
-typedef struct {
+typedef struct MemoryRegion {
     size_t base;     // Base address of the memory region
     size_t size;     // Size of the memory region in bytes
     MemoryRegionType type; // Type of the memory region

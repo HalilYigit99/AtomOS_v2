@@ -16,7 +16,7 @@ extern void* malloc_aligned(size_t alignment, size_t size);
 
 extern void memcpy(void* dest, const void* src, size_t n);
 
-extern void memset(void* ptr, int value, size_t num);
+extern void memset(void* ptr, char value, size_t num);
 
 extern void memmove(void* dest, const void* src, size_t n);
 

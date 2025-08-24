@@ -4,7 +4,7 @@
 
 // Create a new buffer with default data size
 Buffer* buffer_create(size_t default_data_size) {
-    Buffer* buffer = (Buffer*)heap_alloc(&kernel_heap, sizeof(Buffer));
+    Buffer* buffer = (Buffer*)malloc(sizeof(Buffer));
     if (!buffer) {
         return NULL;
     }
@@ -23,7 +23,7 @@ void buffer_destroy(Buffer* buffer) {
     if (!buffer) return;
     
     buffer_clear(buffer);
-    heap_free(&kernel_heap, buffer);
+    free(buffer);
 }
 
 // Clear all nodes from buffer
@@ -33,7 +33,7 @@ void buffer_clear(Buffer* buffer) {
     BufferNode* current = buffer->head;
     while (current) {
         BufferNode* next = current->next;
-        heap_free(&kernel_heap, current);
+        free(current);
         current = next;
     }
     
@@ -50,8 +50,7 @@ int buffer_push(Buffer* buffer, const void* data) {
     size_t data_size = buffer->default_data_size;
     
     // Node + veri için yer ayır (flexible array member)
-    BufferNode* new_node = (BufferNode*)heap_alloc(&kernel_heap, 
-                                                   sizeof(BufferNode) + data_size);
+    BufferNode* new_node = (BufferNode*)malloc(sizeof(BufferNode) + data_size);
     if (!new_node) {
         return -1;
     }
@@ -165,7 +164,7 @@ BufferNode* buffer_pop_node(Buffer* buffer) {
 // Free a buffer node
 void buffer_free_node(BufferNode* node) {
     if (node) {
-        heap_free(&kernel_heap, node);
+        free(node);
     }
 }
 

@@ -7,7 +7,7 @@ extern "C" {
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
-
+#include <util/assert.h>
 
 typedef struct {
     void (*Open)();
@@ -19,14 +19,6 @@ typedef struct {
 } DebugStream;
 
 extern DebugStream* debugStream;
-
-#define ASSERT(condition) \
-    do { \
-        if (!(condition)) { \
-            debugStream->printf("Assertion failed: %s, file %s, line %d\n", condition, __FILE__, __LINE__); \
-            asm volatile ("cli ; hlt"); /* Halt the system */ \
-        } \
-    } while (0)
 
 // Variadic logging macros supporting printf-style formatting.
 // Usage examples:
