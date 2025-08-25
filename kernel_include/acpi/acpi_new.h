@@ -9,6 +9,7 @@ extern "C" {
 #include <stdbool.h>
 #include "acpi.h"
 
+// ACPI ortak packed makrosu ve acpi_gas artık acpi.h içinde tanımlı
 #ifndef ACPI_PACKED
 #define ACPI_PACKED __attribute__((packed))
 #endif
@@ -17,14 +18,7 @@ extern "C" {
  * ACPI v2+ (yeni) yapıları: RSDP v2, XSDT, Generic Address Structure (GAS), HPET
  */
 
-/* Generic Address Structure (ACPI 2.0+) */
-typedef struct ACPI_PACKED acpi_gas {
-    uint8_t  AddressSpaceID;   /* 0: System Memory, 1: System I/O, vb. */
-    uint8_t  BitWidth;
-    uint8_t  BitOffset;
-    uint8_t  AccessSize;       /* 0: undefined, 1: byte, 2: word, 3: dword, 4: qword */
-    uint64_t Address;          /* Fiziksel adres */
-} acpi_gas;
+/* acpi_gas tanımı acpi.h içinde (AddressSpaceId, RegisterBitWidth, RegisterBitOffset, AccessSize, Address) */
 
 /* RSDP v2 (36+ bayt) - ACPI 2.0 ve sonrası */
 typedef struct ACPI_PACKED acpi_rsdp_v2 {

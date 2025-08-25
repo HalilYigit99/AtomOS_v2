@@ -13,7 +13,7 @@ void __assert_v1(const char* condition, const char* file, int line, const char* 
     // Burada sistemin durdurulması veya başka bir hata işleme mekanizması eklenebilir
     asm volatile ("cli");
 
-    for (size_t i = 0; i < 0xFFFFFF; i++); // Basit bir bekleme döngüsü
+    for (size_t i = 0; i < 0xFFFFFFF; i++); // Basit bir bekleme döngüsü
 
     if (acpi_version != 0)
     {

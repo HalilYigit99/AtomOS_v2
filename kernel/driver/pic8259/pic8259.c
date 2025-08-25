@@ -107,10 +107,10 @@ void pic8259_disable() {
 }
 
 void pic8259_enable_irq(uint32_t irq) {
-    LOG("Enabling IRQ %u", irq);
     if (irq > 15) {
         return; // Geçersiz IRQ numarası
     }
+    LOG("Enabling IRQ %u", irq);
     if (irq < 8) {
         // Master PIC
         uint8_t mask = inb(0x21); // Mevcut maskeyi al

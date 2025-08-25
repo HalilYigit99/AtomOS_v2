@@ -33,7 +33,7 @@ InputStream keyboardInputStream = {
 
 static int __open() {
     if (isOpen) {
-        WARN("Keyboard input stream is already open.\n");
+        WARN("Keyboard input stream is already open.");
         return -1; // Already open
     }
 

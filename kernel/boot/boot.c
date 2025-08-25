@@ -24,6 +24,7 @@ extern void bios_init();
 
 extern void heap_init();
 extern void gfx_init();
+extern void acpi_sci_init();
 
 void __boot_kernel_start(void)
 {
@@ -37,14 +38,14 @@ void __boot_kernel_start(void)
     multiboot2_parse();
 
     heap_init(); // Initialize local heap
-    
-    pmm_init(); // Initialize physical memory manager
 
     if (mb2_is_efi_boot) {
         efi_init();
     }else {
         bios_init();
     }
+
+    pmm_init(); // Initialize physical memory manager
 
     /* ACPI tablolarını multiboot üzerinden başlat */
     acpi_init();
@@ -67,6 +68,8 @@ void __boot_kernel_start(void)
     system_driver_enable(&ps2kbd_driver);
     system_driver_enable(&ps2mouse_driver);
 
+    acpi_sci_init();
+    
     gfx_init();
 
 }

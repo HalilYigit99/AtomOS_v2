@@ -28,6 +28,15 @@ extern "C" {
 #define ACPI_SIG_DSDT "DSDT"
 #define ACPI_SIG_SSDT "SSDT"
 
+/* ACPI 2.0+: Generic Address Structure (GAS) */
+typedef struct ACPI_PACKED acpi_gas {
+    uint8_t  AddressSpaceId;   /* 0: System Memory, 1: System I/O, vb. */
+    uint8_t  RegisterBitWidth;
+    uint8_t  RegisterBitOffset;
+    uint8_t  AccessSize;       /* 0: undefined, 1: byte, 2: word, 3: dword, 4: qword */
+    uint64_t Address;          /* Fiziksel adres */
+} acpi_gas;
+
 /* SDT başlığı - tüm ACPI tabloları için ortak */
 typedef struct ACPI_PACKED acpi_sdt_header {
     char     Signature[4];
@@ -67,6 +76,78 @@ typedef enum acpi_madt_entry_type {
     ACPI_MADT_PLATFORM_INTERRUPT_SOURCES = 8,
     ACPI_MADT_PROCESSOR_LOCAL_X2APIC    = 9,
 } acpi_madt_entry_type;
+
+typedef struct ACPI_PACKED {
+    acpi_sdt_header Header;
+
+    /* ACPI 1.0 fields */
+    uint32_t FirmwareCtrl;     /* Physical address of FACS */
+    uint32_t Dsdt;             /* Physical address of DSDT */
+    uint8_t  Reserved1;        /* ACPI 1.0: reserved byte (offset uyumu için) */
+
+    uint8_t  PreferredPMProfile; /* 2.0+: preferred profile */
+    uint16_t SciInterrupt;
+    uint32_t SmiCommandPort;
+    uint8_t  AcpiEnable;
+    uint8_t  AcpiDisable;
+    uint8_t  S4BiosReq;
+    uint8_t  PstateControl;
+
+    uint32_t Pm1aEventBlock;
+    uint32_t Pm1bEventBlock;
+    uint32_t Pm1aControlBlock;
+    uint32_t Pm1bControlBlock;
+    uint32_t Pm2ControlBlock;
+    uint32_t PmTimerBlock;
+    uint32_t Gpe0Block;
+    uint32_t Gpe1Block;
+
+    uint8_t  Pm1EventLength;
+    uint8_t  Pm1ControlLength;
+    uint8_t  Pm2ControlLength;
+    uint8_t  PmTimerLength;
+    uint8_t  Gpe0Length;
+    uint8_t  Gpe1Length;
+    uint8_t  Gpe1Base;
+    uint8_t  CstControl;
+
+    uint16_t WorstC2Latency;
+    uint16_t WorstC3Latency;
+
+    uint16_t FlushSize;
+    uint16_t FlushStride;
+
+    uint8_t  DutyOffset;
+    uint8_t  DutyWidth;
+
+    uint8_t  DayAlarm;
+    uint8_t  MonthAlarm;
+    uint8_t  Century;
+
+    /* 2.0+: Boot architecture and flags */
+    uint16_t BootArchitectureFlags;
+    uint8_t  Reserved2;
+    uint32_t Flags;
+
+    /* 2.0+: Reset register (GAS) and value */
+    acpi_gas ResetReg;
+    uint8_t  ResetValue;
+    uint8_t  Reserved3[3];
+
+    /* 2.0+: 64-bit pointers */
+    uint64_t XFirmwareCtrl; /* 64-bit FACS */
+    uint64_t XDsdt;         /* 64-bit DSDT */
+
+    /* 2.0+: GAS versions of fixed hardware blocks */
+    acpi_gas XPm1aEventBlock;
+    acpi_gas XPm1bEventBlock;
+    acpi_gas XPm1aControlBlock;
+    acpi_gas XPm1bControlBlock;
+    acpi_gas XPm2ControlBlock;
+    acpi_gas XPmTimerBlock;
+    acpi_gas XGpe0Block;
+    acpi_gas XGpe1Block;
+} ACPI_FADT;
 
 /* Basit ACPI init ve tablo erişim fonksiyonları */
 void acpi_init(void);

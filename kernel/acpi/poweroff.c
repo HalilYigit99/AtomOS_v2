@@ -149,10 +149,10 @@ static void acpi_get_pm1_ports(const acpi_fadt_unified* fadt, uint16_t* pm1a, ui
     uint16_t a = (uint16_t)fadt->Pm1aCntBlk;
     uint16_t b = (uint16_t)fadt->Pm1bCntBlk;
     // Prefer XPm1* if address space is System I/O (1) and address non-zero
-    if (fadt->XPm1aCntBlk.Address && fadt->XPm1aCntBlk.AddressSpaceID == 1) {
+    if (fadt->XPm1aCntBlk.Address && fadt->XPm1aCntBlk.AddressSpaceId == 1) {
         a = (uint16_t)fadt->XPm1aCntBlk.Address;
     }
-    if (fadt->XPm1bCntBlk.Address && fadt->XPm1bCntBlk.AddressSpaceID == 1) {
+    if (fadt->XPm1bCntBlk.Address && fadt->XPm1bCntBlk.AddressSpaceId == 1) {
         b = (uint16_t)fadt->XPm1bCntBlk.Address;
     }
     if (pm1a) *pm1a = a;

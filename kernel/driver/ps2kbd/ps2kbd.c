@@ -85,16 +85,16 @@ static bool ps2kbd_init(void) {
     ps2_event_buffer = buffer_create(sizeof(KeyboardKeyEventData));
 
     if (!ps2_event_buffer) {
-        LOG("Failed to create PS/2 keyboard event buffer.\n");
+        LOG("Failed to create PS/2 keyboard event buffer.");
         return false;
     }
 
-    LOG("Initializing PS/2 keyboard...\n");
+    LOG("Initializing PS/2 keyboard...");
 
     // Önce ortak controller'ın başlatıldığından emin ol
     if (!ps2_controller_initialized) {
         if (!ps2_controller_init()) {
-            LOG("PS/2 Keyboard: Controller init failed!\n");
+            LOG("PS/2 Keyboard: Controller init failed!");
             return false;
         }
     }
@@ -107,33 +107,33 @@ static bool ps2kbd_init(void) {
 
     // Klavyeyi disable et (konfigürasyon için)
     if (!ps2_kbd_send_command(PS2_KBD_CMD_DISABLE)) {
-        LOG("Failed to disable PS/2 keyboard.\n");
+        LOG("Failed to disable PS/2 keyboard.");
         return false;
     }
 
     // Klavyeyi reset et
-    LOG("Resetting PS/2 keyboard...\n");
+    LOG("Resetting PS/2 keyboard...");
     if (!ps2_kbd_send_command(PS2_KBD_CMD_RESET)) {
-        LOG("Failed to reset PS/2 keyboard.\n");
+        LOG("Failed to reset PS/2 keyboard.");
         return false;
     }
 
     // Self-test sonucunu bekle
     uint8_t self_test = ps2_controller_read_data();
     if (self_test != PS2_RESPONSE_SELF_TEST_OK) {
-        LOG("PS/2 keyboard self-test failed: 0x%02X\n", self_test);
+        LOG("PS/2 keyboard self-test failed: 0x%02X", self_test);
         return false;
     }
 
     // Scancode set 2'ye ayarla
-    LOG("Setting scancode set 2...\n");
+    LOG("Setting scancode set 2...");
     if (!ps2_kbd_send_command(PS2_KBD_CMD_SET_SCANCODE)) {
-        LOG("Failed to send scancode set command.\n");
+        LOG("Failed to send scancode set command.");
         return false;
     }
     
     if (!ps2_kbd_send_command(0x02)) { // Scancode set 2
-        LOG("Failed to set scancode set 2.\n");
+        LOG("Failed to set scancode set 2.");
         return false;
     }
 
@@ -142,16 +142,16 @@ static bool ps2kbd_init(void) {
         if (ps2_kbd_send_command(0x00)) { // Current scancode set'i oku
             uint8_t current_set = ps2_controller_read_data();
             if (current_set == 0x02) {
-                LOG("Scancode set 2 confirmed.\n");
+                LOG("Scancode set 2 confirmed.");
             } else {
-                WARN("Scancode set may not be 2 (got: 0x%02X)\n", current_set);
+                WARN("Scancode set may not be 2 (got: 0x%02X)", current_set);
             }
         }
     }
 
     // Klavyeyi enable et
     if (!ps2_kbd_send_command(PS2_KBD_CMD_ENABLE)) {
-        LOG("Failed to enable PS/2 keyboard.\n");
+        LOG("Failed to enable PS/2 keyboard.");
         return false;
     }
 
@@ -167,7 +167,7 @@ static bool ps2kbd_init(void) {
     // PIC'de IRQ1'i mask et
     irq_controller->disable(1); // IRQ1 için PIC'de mask
 
-    LOG("PS/2 keyboard driver initialized successfully.\n");
+    LOG("PS/2 keyboard driver initialized successfully.");
 
     return true;
 }
@@ -188,7 +188,7 @@ void ps2kbd_enable(void) {
     irq_controller->enable(IRQ_PS2_KEYBOARD); // IRQ1'i etkinleştir
     List_Add(keyboardInputStreamList, &ps2kbdInputStream);
     ps2kbd_driver.enabled = true;
-    LOG("PS/2 keyboard driver enabled.\n");
+    LOG("PS/2 keyboard driver enabled.");
 }
 
 void ps2kbd_disable(void) {

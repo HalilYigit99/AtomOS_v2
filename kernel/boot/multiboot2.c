@@ -204,7 +204,7 @@ void multiboot2_parse() {
     ) {
 
         // Set msg for textmode terminal
-        char* msg = (char*)"Multiboot2 tags are missing required information!\n";
+        char* msg = (char*)"Multiboot2 tags are missing required information!";
 
         char* txtBfr = (char*)0xB8000;
 

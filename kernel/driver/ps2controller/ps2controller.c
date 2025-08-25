@@ -25,7 +25,7 @@ bool ps2_controller_wait_read(void) {
 
 uint8_t ps2_controller_read_data(void) {
     if (!ps2_controller_wait_read()) {
-        LOG("PS2 Controller: Read timeout!\n");
+        LOG("PS2 Controller: Read timeout!");
         return 0xFF;
     }
     return inb(PS2_DATA_PORT);
@@ -33,7 +33,7 @@ uint8_t ps2_controller_read_data(void) {
 
 void ps2_controller_write_command(uint8_t cmd) {
     if (!ps2_controller_wait_write()) {
-        LOG("PS2 Controller: Write command timeout!\n");
+        LOG("PS2 Controller: Write command timeout!");
         return;
     }
     outb(PS2_COMMAND_PORT, cmd);
@@ -41,7 +41,7 @@ void ps2_controller_write_command(uint8_t cmd) {
 
 void ps2_controller_write_data(uint8_t data) {
     if (!ps2_controller_wait_write()) {
-        LOG("PS2 Controller: Write data timeout!\n");
+        LOG("PS2 Controller: Write data timeout!");
         return;
     }
     outb(PS2_DATA_PORT, data);
@@ -58,7 +58,7 @@ bool ps2_controller_flush_buffer(void) {
         inb(PS2_DATA_PORT);
         count++;
         if (count > 32) {
-            LOG("PS2 Controller: Buffer flush overflow\n");
+            LOG("PS2 Controller: Buffer flush overflow");
             return false;
         }
         io_wait();
@@ -77,18 +77,18 @@ bool ps2_controller_set_config(uint8_t config) {
     // Config'i geri oku ve doğrula
     ps2_controller_config = ps2_controller_get_config();
     if (ps2_controller_config != config) {
-        LOG("PS2 Controller: Config mismatch! Wrote 0x%02X, read 0x%02X\n", config, ps2_controller_config);
+        LOG("PS2 Controller: Config mismatch! Wrote 0x%02X, read 0x%02X", config, ps2_controller_config);
     }
     return true;
 }
 
 bool ps2_controller_init(void) {
     if (ps2_controller_initialized) {
-        LOG("PS2 Controller: Already initialized\n");
+        LOG("PS2 Controller: Already initialized");
         return true;
     }
     
-    LOG("PS2 Controller: Initializing...\n");
+    LOG("PS2 Controller: Initializing...");
     
     // Step 1: Disable both PS/2 ports during initialization
     ps2_controller_write_command(PS2_CMD_DISABLE_PORT1);
@@ -99,7 +99,7 @@ bool ps2_controller_init(void) {
     
     // Step 3: Read current configuration
     ps2_controller_config = ps2_controller_get_config();
-    LOG("PS2 Controller: Initial config: 0x%02X\n", ps2_controller_config);
+    LOG("PS2 Controller: Initial config: 0x%02X", ps2_controller_config);
     
     // Step 4: Disable interrupts and translation temporarily
     uint8_t temp_config = ps2_controller_config;
@@ -111,7 +111,7 @@ bool ps2_controller_init(void) {
     ps2_controller_write_command(PS2_CMD_TEST_CONTROLLER);
     uint8_t test_result = ps2_controller_read_data();
     if (test_result != 0x55) {
-        LOG("PS2 Controller: Self-test failed (0x%02X)\n", test_result);
+        LOG("PS2 Controller: Self-test failed (0x%02X)", test_result);
         return false;
     }
     
@@ -122,7 +122,7 @@ bool ps2_controller_init(void) {
     ps2_controller_write_command(PS2_CMD_TEST_PORT1);
     test_result = ps2_controller_read_data();
     if (test_result != 0x00) {
-        LOG("PS2 Controller: Port 1 test failed (0x%02X)\n", test_result);
+        LOG("PS2 Controller: Port 1 test failed (0x%02X)", test_result);
         return false;
     }
     
@@ -138,17 +138,17 @@ bool ps2_controller_init(void) {
     bool has_port2 = !(ps2_controller_config & PS2_CONFIG_PORT2_CLOCK);
     
     if (has_port2) {
-        LOG("PS2 Controller: Port 2 (mouse) detected\n");
+        LOG("PS2 Controller: Port 2 (mouse) detected");
         
         // Test port 2
         ps2_controller_write_command(PS2_CMD_TEST_PORT2);
         test_result = ps2_controller_read_data();
         if (test_result != 0x00) {
-            LOG("PS2 Controller: Port 2 test failed (0x%02X)\n", test_result);
+            LOG("PS2 Controller: Port 2 test failed (0x%02X)", test_result);
             has_port2 = false;
         }
     } else {
-        LOG("PS2 Controller: No second port detected\n");
+        LOG("PS2 Controller: No second port detected");
     }
     
     // Step 10: Final configuration - DO NOT enable interrupts yet!
@@ -162,7 +162,7 @@ bool ps2_controller_init(void) {
     ps2_controller_set_config(ps2_controller_config);
     
     ps2_controller_initialized = true;
-    LOG("PS2 Controller: Initialization complete (config: 0x%02X)\n", ps2_controller_config);
+    LOG("PS2 Controller: Initialization complete (config: 0x%02X)", ps2_controller_config);
     
     return true;
 }

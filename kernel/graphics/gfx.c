@@ -127,7 +127,7 @@ void gfx_draw_pixel(gfx_buffer *buffer, int x, int y, gfx_color color)
     if (x < 0 || y < 0)
         return;
 
-    volatile gfx_color *pixel = (volatile gfx_color *)((size_t)buffer->buffer + (y * buffer->size.width + x) * sizeof(uint32_t));
+    volatile gfx_color *pixel = (volatile gfx_color *)((size_t)buffer->buffer + (y * buffer->size.width + x) * (buffer->bpp / 8));
     if (buffer->bpp == 32) pixel->argb = color.argb;
     else 
     if (buffer->bpp == 24) {
@@ -488,9 +488,7 @@ static void gfx_draw_bpp24()
         ERROR("Buffer size is zero, cannot draw");
         return;
     }
-
-    memset((void *)hardware_buffer->buffer, 0, hardware_buffer->size.width * hardware_buffer->size.height * 3); // Clear hardware buffer
-
+    
     size_t width = buffer->size.width < screen_width ? buffer->size.width : screen_width;
     size_t height = buffer->size.height < screen_height ? buffer->size.height : screen_height;
 
