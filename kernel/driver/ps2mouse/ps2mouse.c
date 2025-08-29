@@ -5,6 +5,9 @@
 #include <driver/ps2mouse/ps2mouse.h>
 #include <driver/ps2controller/ps2controller.h>
 
+
+#define IRQ_PS2_MOUSE 12 // IRQ numarası, genelde 12 (IRQ12) PS/2 mouse için kullanılır
+
 static bool enabled = false;
 static uint8_t packet_buffer[3];
 static size_t packet_index = 0;
@@ -216,7 +219,7 @@ void ps2mouse_isr_handler(void) {
     
     // Veri var mı kontrol et
     if (!(status & PS2_STATUS_OUTPUT_FULL)) {
-        return;
+        goto _ret;
     }
     
     // Veriyi oku
@@ -224,7 +227,7 @@ void ps2mouse_isr_handler(void) {
 
     // Mouse verisi mi kontrol et
     if (!(status & PS2_STATUS_AUX_DATA)) {
-        return;
+        goto _ret;
     }
     
     // Packet topla
@@ -255,6 +258,9 @@ void ps2mouse_isr_handler(void) {
         
         packet_index = 0;
     }
+
+_ret:
+    irq_controller->acknowledge(IRQ_PS2_MOUSE);
 }
 
 DriverBase ps2mouse_driver = {

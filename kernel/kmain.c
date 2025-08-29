@@ -40,12 +40,13 @@ void __attribute__((optimize("O0"))) kmain() {
         LOG("Failed to load logo bitmap from memory");
     }
 
-    pit_timer->setFrequency(10); // Set PIT timer frequency to 10Hz (10 ticks per second)
-
     if (pit_timer){
+        pit_timer->setFrequency(10); // Set PIT timer frequency to 10Hz (10 ticks per second)
         pit_timer->add_callback(gfx_draw_task); // Add the cursor update task to the PIT timer callbacks
         LOG("PIT timer callbacks registered");
     }
+
+    gfx_draw_task(); // Initial draw to show the logo
 
     // Clear keyboard input stream
     while (keyboardInputStream.available())

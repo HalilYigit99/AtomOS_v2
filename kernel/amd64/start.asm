@@ -11,6 +11,7 @@ extern idt_ptr
 extern __boot_kernel_start
 extern detect_erms
 extern kmain
+extern amd64_map_identity_low_4g
 
 _start:
 
@@ -43,6 +44,9 @@ _start:
 
     ; Detect CPU features (ERMS) after segmentation set up
     call detect_erms
+
+    ; Ensure low 4GiB identity-mapped with 2MiB pages (MMIO reachable)
+    call amd64_map_identity_low_4g
 
     ; Artık paging aktif; kernel girişine devam
     call __boot_kernel_start ; Call the boot kernel start function

@@ -188,7 +188,7 @@ void pic8259_register_handler(uint32_t irq, void (*handler)(void)) {
         return; // Geçersiz IRQ numarası
     }
 
-    idt_set_gate(32 + irq, (uintptr_t)handler); // 0x8E = Present, DPL=0, Type=Interrupt Gate
+    idt_set_gate(32 + irq, (uintptr_t)handler); // Doğru IDT girişini ayarla
 }
 
 void pic8259_unregister_handler(uint32_t irq) {
@@ -253,5 +253,19 @@ IRQController pic8259_irq_controller = {
     .get_priority = pic8259_get_priority, // Priority alma fonksiyonu henüz tanımlanmadı
     .is_enabled = pic8259_is_enabled, // IRQ'nun aktif olup olmadığını kontrol etme fonksiyonu henüz tanımlanmadı
     .register_handler = pic8259_register_handler, // IRQ handler kaydetme fonksiyonu henüz tanımlanmadı
-    .unregister_handler = pic8259_unregister_handler // IRQ handler kaldırma fonksiyonu henüz tanımlanmadı
+    .unregister_handler = pic8259_unregister_handler, // IRQ handler kaldırma fonksiyonu henüz tanımlanmadı
+    // GSI passthrough: GSI == IRQ
+    .enable_gsi = pic8259_enable_irq,
+    .disable_gsi = pic8259_disable_irq,
+    .acknowledge_gsi = pic8259_acknowledge_irq,
+    .set_priority_gsi = pic8259_set_priority,
+    .get_priority_gsi = pic8259_get_priority,
+    .is_enabled_gsi = pic8259_is_enabled,
+    .register_handler_gsi = pic8259_register_handler,
+    .unregister_handler_gsi = pic8259_unregister_handler
 };
+
+void pic8259_slave_default_isr_handler() {
+    irq_controller->acknowledge(get_active_slave_irq()); // Aktif IRQ için acknowledge
+    irq_controller->acknowledge(2); // Slave PIC IRQ2 için acknowledge
+}

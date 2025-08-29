@@ -70,7 +70,7 @@ int pit_start()
         return -1;
     }
 
-    // IRQ0'ı enable et
+    // IRQ0'ı enable et (PIC/APIC fark etmeksizin)
     if (irq_controller && irq_controller->enable) {
         irq_controller->enable(IRQ_PIT);
     }

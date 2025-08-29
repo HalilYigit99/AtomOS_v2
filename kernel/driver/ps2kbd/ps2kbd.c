@@ -209,7 +209,7 @@ extern void __ps2kbd_tr_f_handle(uint8_t scancode);
 void ps2kbd_handler() {
 
     if (!ps2_event_buffer) {
-        return;
+        goto _ret;
     }
 
     char scancode = inb(PS2_DATA_PORT);
@@ -221,8 +221,11 @@ void ps2kbd_handler() {
     } else if (currentLayout == LAYOUT_TR_F) {
         __ps2kbd_tr_f_handle(scancode);
     } else {
-        return;
+        goto _ret;
     }
+
+_ret:
+    irq_controller->acknowledge(IRQ_PS2_KEYBOARD);
 }
 
 static int ps2kbd_stream_open() {

@@ -6,6 +6,7 @@ global pic8259_irq2_handler
 global pic8259_master_default_isr
 
 extern pic8259_irq2_isr_addr
+extern pic8259_slave_default_isr_handler
 extern pic8259_irq2_isr_handler
 
 %if __BITS__ == 64
@@ -68,9 +69,7 @@ pic8259_slave_default_isr:
 
     push rax
 
-    mov al, 0x20
-    out 0xA0, al
-    out 0x20, al
+    call pic8259_slave_default_isr_handler
 
     pop rax
 
@@ -109,9 +108,7 @@ pic8259_slave_default_isr:
 
     push eax
 
-    mov al, 0x20
-    out 0xA0, al
-    out 0x20, al
+    call pic8259_slave_default_isr_handler
 
     pop eax
 

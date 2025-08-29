@@ -26,9 +26,6 @@ ps2kbd_isr:
 
     call ps2kbd_handler
 
-    mov al, 0x20
-    out 0x20, al    ; Master PIC EOI
-
     pop r15
     pop r14
     pop r13
@@ -57,9 +54,6 @@ ps2kbd_isr:
     pushad
 
     call ps2kbd_handler
-
-    mov al, 0x20
-    out 0x20, al    ; Master PIC EOI
 
     popad
     sti

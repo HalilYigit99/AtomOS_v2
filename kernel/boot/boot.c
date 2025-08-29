@@ -7,11 +7,13 @@
 #include <driver/DriverBase.h>
 #include <keyboard/Keyboard.h>
 #include <mouse/mouse.h>
+#include <driver/apic/apic.h>
 
 extern DriverBase pic8259_driver;
 extern DriverBase ps2kbd_driver;
 extern DriverBase ps2mouse_driver;
 extern DriverBase pit_driver;
+extern DriverBase apic_driver;
 
 extern uint32_t mb2_signature;
 extern uint32_t mb2_tagptr;
@@ -50,10 +52,21 @@ void __boot_kernel_start(void)
     /* ACPI tablolarını multiboot üzerinden başlat */
     acpi_init();
 
-    // TODO: APIC or PIC selection and initialization
-    // INFO: APIC is not implemented yet, so we will use PIC for now.
+    // APIC varsa onu kullan, yoksa PIC'e düş
+    // if (acpi_get_madt() && apic_init()) 
+    // {
+    //     system_driver_register(&apic_driver);
+    //     system_driver_enable(&apic_driver);
+    //     LOG("Using APIC interrupt controller");
+    // } else {
+    //     system_driver_register(&pic8259_driver);
+    //     system_driver_enable(&pic8259_driver);
+    //     LOG("Using PIC8259 interrupt controller");
+    // }
+
     system_driver_register(&pic8259_driver);
     system_driver_enable(&pic8259_driver);
+    LOG("Using PIC8259 interrupt controller");
 
     // PIT (system tick)
     system_driver_register(&pit_driver);
@@ -68,7 +81,7 @@ void __boot_kernel_start(void)
     system_driver_enable(&ps2kbd_driver);
     system_driver_enable(&ps2mouse_driver);
 
-    acpi_sci_init();
+    // acpi_sci_init();
     
     gfx_init();
 
