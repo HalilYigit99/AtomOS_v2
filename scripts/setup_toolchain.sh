@@ -43,24 +43,24 @@ detect_distro() {
 install_dependencies() {
     log_info "Installing system dependencies..."
     case "$DISTRO" in
-        "ubuntu"|"debian")
+        "ubuntu"|"debian"|"pardus")
             sudo apt update
             sudo apt install -y \
                 build-essential nasm qemu-system-x86 grub-pc-bin grub-efi-amd64-bin \
-                grub-efi-ia32-bin xorriso ovmf wget curl git make texinfo bison flex \
+                grub-efi-ia32-bin xorriso ovmf mtools wget curl git make texinfo bison flex \
                 libgmp3-dev libmpc-dev libmpfr-dev libisl-dev libzstd-dev
             ;;
         "fedora"|"rhel"|"centos")
             sudo dnf groupinstall -y "Development Tools"
             sudo dnf install -y \
-                nasm qemu-system-x86 grub2-pc grub2-efi-x64 grub2-efi-ia32 xorriso \
+                nasm qemu-system-x86 grub2-pc grub2-efi-x64 grub2-efi-ia32 xorriso mtools \
                 edk2-ovmf wget curl git make texinfo bison flex gmp-devel \
                 libmpc-devel mpfr-devel isl-devel
             ;;
         "arch"|"manjaro")
             sudo pacman -Syu --noconfirm
             sudo pacman -S --noconfirm --needed \
-                base-devel nasm qemu-system-x86 grub efibootmgr xorriso ovmf \
+                base-devel nasm qemu-system-x86 grub efibootmgr xorriso ovmf mtools \
                 wget curl git make texinfo bison flex gmp libmpc mpfr isl
             ;;
         *)
@@ -77,7 +77,7 @@ check_existing_toolchain() {
     local x86_64_gcc="$CROSS_PREFIX/bin/x86_64-elf-gcc"
     if [ -f "$i686_gcc" ] && [ -f "$x86_64_gcc" ]; then
         log_info "Cross-compilers already exist at $CROSS_PREFIX"
-        if "$i686_gcc" --version >/dev/null 2&>1 && "$x86_64_gcc" --version >/dev/null 2>&1; then
+        if "$i686_gcc" --version >/dev/null 2>&1 && "$x86_64_gcc" --version >/dev/null 2>&1; then
             log_info "Existing cross-compilers are functional"
             read -p "Do you want to rebuild them? (y/N) " response
             if [[ ! "$response" =~ ^[Yy]$ ]]; then
@@ -163,6 +163,7 @@ download_sources() {
 build_cross_compiler() {
     local target=$1
     local build_dir=$2
+    local cache_dir=$3
     
     log_build "Building cross-compiler for $target..."
     
@@ -253,7 +254,24 @@ verify_installation() {
         log_info "All cross-compilers found in PATH."
         log_info "i686-elf-gcc: $(i686-elf-gcc --version | head -n1)"
         log_info "x86_64-elf-gcc: $(x86_64-elf-gcc --version | head -n1)"
-        log_info "Setup complete! You can now build AtomOS."
+        # mtools / mformat kontrolü (grub-mkrescue için gerekli)
+        if command -v mformat &>/dev/null; then
+            log_info "mtools (mformat) found. ISO oluşturma için hazır."
+            log_info "Setup complete! You can now build AtomOS."
+        else
+            log_warn "mtools (mformat) bulunamadı. ISO oluşturma aşamasında grub-mkrescue hata verebilir."
+            case "$DISTRO" in
+                "ubuntu"|"debian"|"pardus")
+                    log_warn "Düzeltmek için: sudo apt install -y mtools"
+                    ;;
+                "fedora"|"rhel"|"centos")
+                    log_warn "Düzeltmek için: sudo dnf install -y mtools"
+                    ;;
+                "arch"|"manjaro")
+                    log_warn "Düzeltmek için: sudo pacman -S --noconfirm mtools"
+                    ;;
+            esac
+        fi
     else
         log_error "Cross-compilers not found in PATH. Please check the installation."
         return 1
