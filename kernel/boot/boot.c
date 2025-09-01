@@ -81,7 +81,7 @@ void __boot_kernel_start(void)
     system_driver_enable(&ps2kbd_driver);
     system_driver_enable(&ps2mouse_driver);
 
-    // acpi_sci_init();
+    acpi_sci_init();
     
     gfx_init();
 

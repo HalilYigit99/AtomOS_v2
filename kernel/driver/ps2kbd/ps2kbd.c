@@ -8,7 +8,6 @@
 #include <memory/memory.h>
 #include <stream/OutputStream.h>
 #include <debug/debug.h>
-#include <driver/ps2controller/ps2controller.h>
 
 #define IRQ_PS2_KEYBOARD 1 // IRQ numarası, genelde 1 (IRQ1) PS/2 klavye için kullanılır
 
@@ -39,7 +38,6 @@ static int ps2kbd_stream_readBuffer(void* buffer, size_t size);
 static int ps2kbd_stream_available();
 static char ps2kbd_stream_peek();
 static void ps2kbd_stream_flush();
-static bool ps2_kbd_send_command(uint8_t command);
 
 void ps2kbd_handler();
 
@@ -70,10 +68,10 @@ void ps2kbd_handle();
 
 extern bool __kbd_abstraction_initialized; // Flag to check if keyboard abstraction layer is initialized
 
-static bool ps2kbd_init(void) {
+static bool scancodeSetCorrect = false;
+static uint8_t scancodeSetRetryCount = 0;
 
-    // Check for ps2controller initalized
-    if (!ps2_controller_initialized) ps2_controller_init();
+static bool ps2kbd_init(void) {
 
     // Check for keyboard abstraction layer initialized
     if (!__kbd_abstraction_initialized) {
@@ -91,83 +89,273 @@ static bool ps2kbd_init(void) {
 
     LOG("Initializing PS/2 keyboard...");
 
-    // Önce ortak controller'ın başlatıldığından emin ol
-    if (!ps2_controller_initialized) {
-        if (!ps2_controller_init()) {
-            LOG("PS/2 Keyboard: Controller init failed!");
-            return false;
+    bool ps2Mouse_Clk_Enabled = false;
+    bool ps2Mouse_Irq_Enabled = false;
+
+    bool ps2Mouse_Port_Enabled = false;
+
+    // PS/2 Controller ports configuration read
+    uint8_t status = inb(0x64);
+    if (status & 0x20) {
+        ps2Mouse_Port_Enabled = true;
+    }
+
+    // Read controller configuration byte
+    io_wait();
+    outb(0x64, 0x20); // Command to read configuration byte
+    io_wait();
+    uint8_t config = inb(0x60);
+
+    ps2Mouse_Clk_Enabled = (config & 0x20) == 0;
+    ps2Mouse_Irq_Enabled = (config & 0x02) != 0;
+
+    // Disable PS/2 mouse clock and IRQ if enabled
+    if (ps2Mouse_Clk_Enabled || ps2Mouse_Irq_Enabled) {
+        config &= ~0x20; // Disable mouse clock
+        config &= ~0x02; // Disable mouse IRQ
+        io_wait();
+        outb(0x64, 0x60); // Command to write configuration byte
+        io_wait();
+        outb(0x60, config);
+    }
+
+    // Enable PS/2 keyboard CLK and IRQ
+    config |= 0x20; // Enable keyboard clock
+    config |= 0x02; // Enable keyboard IRQ
+
+    // Disable translation
+    config &= ~0x40; // Clear translation bit
+
+    // Write back modified configuration byte
+    outb(0x64, 0x60); // Command to write configuration byte
+    io_wait();
+    outb(0x60, config);
+    io_wait();
+
+    // Disable PS/2 mouse port
+    io_wait();
+    outb(0x64, 0xA7); 
+    io_wait();
+    
+    // Wait until the controller is ready to accept data
+    for (int i = 0; i < 1000; i++) {
+        io_wait();
+        uint8_t status = inb(0x64);
+        if ((status & 0x02) == 0) { // Check if input buffer is clear
+            break;
         }
     }
 
-    // Controller'ın hazır olduğundan emin ol
-    ps2_controller_flush_buffer();
+    // Send Disable scanning command
+    io_wait();
+    outb(0x60, PS2_KBD_CMD_DISABLE);
+    io_wait();
 
-    // Port 1'in aktif olduğundan emin ol
-    ps2_controller_write_command(PS2_CMD_ENABLE_PORT1);
-
-    // Klavyeyi disable et (konfigürasyon için)
-    if (!ps2_kbd_send_command(PS2_KBD_CMD_DISABLE)) {
-        LOG("Failed to disable PS/2 keyboard.");
-        return false;
-    }
-
-    // Klavyeyi reset et
-    LOG("Resetting PS/2 keyboard...");
-    if (!ps2_kbd_send_command(PS2_KBD_CMD_RESET)) {
-        LOG("Failed to reset PS/2 keyboard.");
-        return false;
-    }
-
-    // Self-test sonucunu bekle
-    uint8_t self_test = ps2_controller_read_data();
-    if (self_test != PS2_RESPONSE_SELF_TEST_OK) {
-        LOG("PS/2 keyboard self-test failed: 0x%02X", self_test);
-        return false;
-    }
-
-    // Scancode set 2'ye ayarla
-    LOG("Setting scancode set 2...");
-    if (!ps2_kbd_send_command(PS2_KBD_CMD_SET_SCANCODE)) {
-        LOG("Failed to send scancode set command.");
-        return false;
-    }
-    
-    if (!ps2_kbd_send_command(0x02)) { // Scancode set 2
-        LOG("Failed to set scancode set 2.");
-        return false;
-    }
-
-    // Scancode set'i doğrula
-    if (ps2_kbd_send_command(PS2_KBD_CMD_SET_SCANCODE)) {
-        if (ps2_kbd_send_command(0x00)) { // Current scancode set'i oku
-            uint8_t current_set = ps2_controller_read_data();
-            if (current_set == 0x02) {
-                LOG("Scancode set 2 confirmed.");
-            } else {
-                WARN("Scancode set may not be 2 (got: 0x%02X)", current_set);
+    // Wait for ACK
+    for (int i = 0; i < 1000; i++) {
+        io_wait();
+        uint8_t status = inb(0x64);
+        if (status & 0x01) { // Check if output buffer is full
+            uint8_t response = inb(0x60);
+            if (response == PS2_RESPONSE_ACK) {
+                break; // ACK received
+            } else if (response == PS2_RESPONSE_RESEND) {
+                // Resend the command
+                io_wait();
+                outb(0x60, PS2_KBD_CMD_DISABLE);
             }
         }
     }
 
-    // Klavyeyi enable et
-    if (!ps2_kbd_send_command(PS2_KBD_CMD_ENABLE)) {
-        LOG("Failed to enable PS/2 keyboard.");
-        return false;
+    // Reset the keyboard
+    io_wait();
+    outb(0x60, PS2_KBD_CMD_RESET);
+    io_wait();
+
+    // Wait for ACK
+    for (int i = 0; i < 1000; i++) {
+        io_wait();
+        uint8_t status = inb(0x64);
+        if (status & 0x01) { // Check if output buffer is full
+            uint8_t response = inb(0x60);
+            if (response == PS2_RESPONSE_ACK) {
+                break; // ACK received
+            } else if (response == PS2_RESPONSE_RESEND) {
+                // Resend the command
+                io_wait();
+                outb(0x60, PS2_KBD_CMD_RESET);
+            }
+        }
     }
 
-    // Konfigürasyonu güncelle - klavye interrupt'ını etkinleştir
-    uint8_t config = ps2_controller_get_config();
-    config |= PS2_CONFIG_PORT1_INT;    // Klavye interrupt'ı etkinleştir
-    config &= ~PS2_CONFIG_PORT1_TRANS; // Translation'ı devre dışı bırak (raw scancode)
-    config &= ~PS2_CONFIG_PORT1_CLOCK; // Klavye clock'u etkinleştir
-    ps2_controller_set_config(config);
+    // Wait for self-test result
+    for (int i = 0; i < 1000; i++) {
+        io_wait();
+        uint8_t status = inb(0x64);
+        if (status & 0x01) { // Check if output buffer is full
+            uint8_t response = inb(0x60);
+            if (response == PS2_RESPONSE_SELF_TEST_OK) {
+                break; // Self-test passed
+            } else {
+                LOG("PS/2 Keyboard self-test failed or unexpected response: 0x%02X", response);
+                return false;
+                break; // Self-test failed or unexpected response
+            }
+        }
+    }
 
+set_scancode:
+    // Set scancode set to 2 (most common)
+    io_wait();
+    outb(0x60, PS2_KBD_CMD_SET_SCANCODE);
+    
+    // Wait for ACK
+
+    for (int i = 0; i < 1000; i++) {
+        io_wait();
+        uint8_t status = inb(0x64);
+        if (status & 0x01) { // Check if output buffer is full
+            uint8_t response = inb(0x60);
+            if (response == PS2_RESPONSE_ACK) {
+                break; // ACK received
+            } else if (response == PS2_RESPONSE_RESEND) {
+                // Resend the command
+                io_wait();
+                outb(0x60, PS2_KBD_CMD_SET_SCANCODE);
+            }
+        }
+    }
+
+    outb(0x60, 0x02); // Set to scancode set 2
+    io_wait();
+
+    // Wait for ACK
+
+    for (int i = 0; i < 1000; i++) {
+        io_wait();
+        uint8_t status = inb(0x64);
+        if (status & 0x01) { // Check if output buffer is full
+            uint8_t response = inb(0x60);
+            if (response == PS2_RESPONSE_ACK) {
+                break; // ACK received
+            } else if (response == PS2_RESPONSE_RESEND) {
+                // Resend the command
+                io_wait();
+                outb(0x60, 0x02);
+            }
+        }
+    }
+
+    // Test scancode 2 is setted?
+    io_wait();
+    outb(0x60, PS2_KBD_CMD_SET_SCANCODE); // Set current scancode set
+
+    // Wait for ACK
+    for (int i = 0; i < 1000; i++) {
+        io_wait();
+        uint8_t status = inb(0x64);
+        if (status & 0x01) { // Check if output buffer is full
+            uint8_t response = inb(0x60);
+            if (response == PS2_RESPONSE_ACK) {
+                break; // ACK received
+            } else if (response == PS2_RESPONSE_RESEND) {
+                // Resend the command
+                io_wait();
+                outb(0x60, PS2_KBD_CMD_SET_SCANCODE);
+            }
+        }
+    }
+
+    outb(0x60, 0x00); // Request current scancode set
+    io_wait();
+
+    // Wait for ACK
+    for (int i = 0; i < 1000; i++) {
+        io_wait();
+        uint8_t status = inb(0x64);
+        if (status & 0x01) { // Check if output buffer is full
+            uint8_t response = inb(0x60);
+            if (response == PS2_RESPONSE_ACK) {
+                break; // ACK received
+            } else if (response == PS2_RESPONSE_RESEND) {
+                // Resend the command
+                io_wait();
+                outb(0x60, 0xF0);
+            }
+        }
+    }
+
+    // Wait for scancode set response
+
+    for (int i = 0; i < 1000; i++) {
+        io_wait();
+        uint8_t status = inb(0x64);
+        if (status & 0x01) { // Check if output buffer is full
+            uint8_t response = inb(0x60);
+            if (response == 0x02) {
+                scancodeSetCorrect = true;
+                break; // Scancode set 2 confirmed
+            } else {
+                LOG("PS/2 Keyboard scancode set verification failed or unexpected response: 0x%02X", response);
+                return false;
+                break; // Scancode set verification failed or unexpected response
+            }
+        }
+    }
+
+    if ((scancodeSetRetryCount < 10) && (scancodeSetCorrect == false)) {
+        scancodeSetRetryCount++;
+        WARN("PS/2 Keyboard: Scancode set verification failed, retrying... ( %d/10 )", scancodeSetRetryCount);
+        // Retry setting scancode set to 2,
+        goto set_scancode;
+    }
+
+    // Enable scanning
+    io_wait();
+    outb(0x60, PS2_KBD_CMD_ENABLE);
+    io_wait();
+
+    // Wait for ACK
+    for (int i = 0; i < 1000; i++) {
+        io_wait();
+        uint8_t status = inb(0x64);
+        if (status & 0x01) { // Check if output buffer is full
+            uint8_t response = inb(0x60);
+            if (response == PS2_RESPONSE_ACK) {
+                break; // ACK received
+            } else if (response == PS2_RESPONSE_RESEND) {
+                // Resend the command
+                io_wait();
+                outb(0x60, PS2_KBD_CMD_ENABLE);
+            }
+        }
+    }
+
+    // Register the interrupt handler
     irq_controller->register_handler(IRQ_PS2_KEYBOARD, ps2kbd_isr);
+    irq_controller->disable(IRQ_PS2_KEYBOARD); // Disable IRQ until enabled explicitly
 
-    // PIC'de IRQ1'i mask et
-    irq_controller->disable(1); // IRQ1 için PIC'de mask
+    // Restore PS/2 mouse clock and IRQ if they were originally enabled
+    if (ps2Mouse_Clk_Enabled || ps2Mouse_Irq_Enabled)
+    {
+        if (ps2Mouse_Clk_Enabled) config |= 0x20; // Enable mouse clock
+        if (ps2Mouse_Irq_Enabled) config |= 0x02; // Enable mouse IRQ
+        io_wait();
+        outb(0x64, 0x60); // Command to write configuration byte
+        io_wait();
+        outb(0x60, config);
+    }
 
-    LOG("PS/2 keyboard driver initialized successfully.");
+    // Enable PS/2 mouse port
+    if (ps2Mouse_Port_Enabled) {
+        io_wait();
+        outb(0x64, 0xA8); 
+        io_wait();
+    }
+
+    if (scancodeSetCorrect == false) {
+        WARN("PS/2 Keyboard: Scancode set verification failed.");
+    }
 
     return true;
 }
@@ -188,7 +376,6 @@ void ps2kbd_enable(void) {
     irq_controller->enable(IRQ_PS2_KEYBOARD); // IRQ1'i etkinleştir
     List_Add(keyboardInputStreamList, &ps2kbdInputStream);
     ps2kbd_driver.enabled = true;
-    LOG("PS/2 keyboard driver enabled.");
 }
 
 void ps2kbd_disable(void) {
@@ -212,7 +399,7 @@ void ps2kbd_handler() {
         goto _ret;
     }
 
-    char scancode = inb(PS2_DATA_PORT);
+    char scancode = inb(0x60); // PS/2 data port
 
     if (currentLayout == LAYOUT_US_QWERTY) {
         __ps2kbd_us_qwerty_handle(scancode);
@@ -317,30 +504,7 @@ static char ps2kbd_stream_peek() {
 }
 
 static void ps2kbd_stream_flush() {
-    
-}
-
-// PS/2 klavyeye komut gönder ve ACK bekle
-static bool ps2_kbd_send_command(uint8_t command) {
-    for (int retry = 0; retry < 3; retry++) {
-        if (!ps2_controller_wait_write()) {
-            continue;
-        }
-        
-        outb(PS2_DATA_PORT, command);
-        
-        // Response bekle
-        uint8_t response = ps2_controller_read_data();
-        
-        if (response == PS2_RESPONSE_ACK) {
-            return true;
-        } else if (response == PS2_RESPONSE_RESEND) {
-            // Yeniden dene
-            continue;
-        } else {
-            // Beklenmeyen response
-            return false;
-        }
+    if (ps2_event_buffer) {
+        buffer_clear(ps2_event_buffer);
     }
-    return false;
 }
