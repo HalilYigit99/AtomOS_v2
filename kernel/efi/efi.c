@@ -2,7 +2,7 @@
 #include <debug/debug.h>
 #include <machine/machine.h>
 
-extern uint32_t efi_memory_map_key;
+extern UINTN bs_map_key;
 
 EFI_SYSTEM_TABLE* efi_system_table = NULL;
 EFI_HANDLE efi_image_handle = NULL;
@@ -27,6 +27,32 @@ void efi_init(void) {
     if (efi_system_table->runtime_services) {
         LOG("EFI Runtime Services available at: %p", efi_system_table->runtime_services);
     }
+
+    // EFI Boot Services
+    if (efi_system_table->boot_services) {
+        LOG("EFI Boot Services available at: %p", efi_system_table->boot_services);
+    }
     
     LOG("EFI subsystem initialization complete");
+}
+
+void efi_exit_boot_services() {
+    if (!efi_system_table || !efi_system_table->boot_services) {
+        ERROR("Cannot exit EFI boot services: system table or boot services is NULL");
+        return;
+    }
+
+    if (bs_map_key == 0) {
+        ERROR("Cannot exit EFI boot services: map key is zero");
+        return;
+    }
+
+    EFI_STATUS status = efi_system_table->boot_services->exit_boot_services(
+        efi_image_handle, bs_map_key);
+    
+    if (status != EFI_SUCCESS) {
+        ERROR("Failed to exit EFI boot services: status code %lu", status);
+    } else {
+        LOG("Successfully exited EFI boot services");
+    }
 }

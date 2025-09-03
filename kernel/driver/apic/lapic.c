@@ -7,8 +7,9 @@ static volatile uint32_t* lapic_mmio = 0; // identity-mapped phys assumed
 static uintptr_t lapic_base_phys = 0;
 
 /* IA32_APIC_BASE MSR */
-#define IA32_APIC_BASE_MSR 0x1B
-#define IA32_APIC_BASE_ENABLE (1ull << 11)
+#define IA32_APIC_BASE_MSR       0x1B
+#define IA32_APIC_BASE_ENABLE    (1ull << 11)
+#define IA32_APIC_BASE_X2APIC    (1ull << 10)
 
 static inline uint64_t rdmsr(uint32_t msr)
 {
@@ -58,6 +59,14 @@ void lapic_enable_controller(void)
 {
     /* Ensure APIC globally enabled via MSR and base programmed */
     uint64_t apic_base = rdmsr(IA32_APIC_BASE_MSR);
+    bool x2apic_was_enabled = (apic_base & IA32_APIC_BASE_X2APIC) != 0;
+    if (x2apic_was_enabled) {
+        /* Our LAPIC ops use xAPIC MMIO; ensure x2APIC is off so MMIO works. */
+        apic_base &= ~IA32_APIC_BASE_X2APIC;
+        wrmsr(IA32_APIC_BASE_MSR, apic_base);
+        LOG("LAPIC: x2APIC was enabled, disabling to use xAPIC MMIO");
+        apic_base = rdmsr(IA32_APIC_BASE_MSR);
+    }
     if (!(apic_base & IA32_APIC_BASE_ENABLE)) {
         apic_base |= IA32_APIC_BASE_ENABLE;
         wrmsr(IA32_APIC_BASE_MSR, apic_base);

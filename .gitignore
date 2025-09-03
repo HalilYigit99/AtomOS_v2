@@ -65,3 +65,5 @@ logo.bmp
 logo_128x128.bmp
 copy.sh
 log.txt
+log-bios.txt
+log-efi.txt

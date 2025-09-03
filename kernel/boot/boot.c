@@ -27,6 +27,7 @@ extern void bios_init();
 extern void heap_init();
 extern void gfx_init();
 extern void acpi_sci_init();
+extern void efi_exit_boot_services();
 
 void __boot_kernel_start(void)
 {
@@ -51,6 +52,11 @@ void __boot_kernel_start(void)
 
     /* ACPI tablolarını multiboot üzerinden başlat */
     acpi_init();
+
+    if (mb2_is_efi_boot)
+    {
+        efi_exit_boot_services();
+    }
 
     // APIC varsa onu kullan, yoksa PIC'e düş
     if (acpi_get_madt()) 
