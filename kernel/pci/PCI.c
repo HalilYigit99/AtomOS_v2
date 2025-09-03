@@ -8,6 +8,8 @@
 
 static List* g_pciDevices = NULL;
 static uint32_t g_epoch = 0;
+// Next bus number to assign when encountering unconfigured PCI-to-PCI bridges
+static uint8_t g_nextBus = 1;
 
 static inline uint32_t pci_make_config_address(uint8_t bus, uint8_t dev, uint8_t func, uint8_t offset)
 {
@@ -96,36 +98,35 @@ static void pci_parse_bars(PCIDevice* dev)
 	uint8_t type = dev->headerType & 0x7F;
 	uint8_t maxBars = (type == PCI_HEADER_TYPE_PCI_TO_PCI) ? 2 : 6;
 
-	for (uint8_t i = 0; i < maxBars && dev->barCount < 6; ) {
+	for (uint8_t i = 0; i < maxBars && dev->barCount < 6; ++i) {
 		uint8_t off = 0x10 + i * 4;
 		uint32_t barVal = PCI_ConfigRead32(dev->bus, dev->device, dev->function, off);
-		if (barVal == 0) { i++; continue; }
+		if (barVal == 0) continue;
 
 		PCIBAR* b = &dev->bars[dev->barCount];
 		b->size = 0; b->prefetch = false; b->is64 = false; b->isIO = false; b->address = 0;
 
 		if (barVal & 0x1) {
-			// I/O space BAR
+			// I/O space BAR (32-bit)
 			b->isIO = true;
 			b->address = (uint16_t)(barVal & ~0x3u);
+			// nothing else to skip; i will be incremented by loop
 		} else {
 			// Memory space BAR
 			uint32_t typeBits = (barVal >> 1) & 0x3;
 			b->prefetch = ((barVal & (1u << 3)) != 0);
-			if (typeBits == 0x2) {
-				// 64-bit BAR
+			if (typeBits == 0x2 && (i + 1) < maxBars) {
+				// 64-bit BAR consumes two slots
 				uint32_t low = barVal & ~0xFu;
 				uint32_t high = PCI_ConfigRead32(dev->bus, dev->device, dev->function, off + 4);
 				b->address = ((uint64_t)high << 32) | low;
 				b->is64 = true;
-				i += 2;
+				++i; // skip the next BAR slot
 			} else {
 				b->address = (uint32_t)(barVal & ~0xFu);
-				i += 1;
 			}
 		}
 		dev->barCount++;
-		if (!b->is64) i += 0; // already incremented for 32-bit
 	}
 }
 
@@ -198,10 +199,28 @@ static void pci_visit_function(uint8_t bus, uint8_t dev, uint8_t func, bool enab
 	d->secondaryBus = 0;
 	d->subordinateBus = 0;
 
+
 	if (d->isBridge) {
+		// Read current bus numbering
 		d->secondaryBus   = PCI_ConfigRead8(bus, dev, func, 0x19);
 		d->subordinateBus = PCI_ConfigRead8(bus, dev, func, 0x1A);
+
+		// Enable basic forwarding on the bridge if requested
 		pci_enable_bridge_if_requested(d, enableBridges);
+
+		// If firmware didn't assign bus numbers, assign them dynamically
+		if (enableBridges && (d->secondaryBus == 0 || d->secondaryBus > d->subordinateBus)) {
+			uint8_t newSecondary = g_nextBus++;
+			// Program Primary/Secondary/Subordinate bus numbers
+			PCI_ConfigWrite8(bus, dev, func, 0x18, bus);          // Primary
+			PCI_ConfigWrite8(bus, dev, func, 0x19, newSecondary); // Secondary
+			PCI_ConfigWrite8(bus, dev, func, 0x1A, 0xFF);         // Temporary subordinate (max)
+			PCI_ConfigWrite8(bus, dev, func, 0x1B, 0x20);         // Secondary Latency Timer (arbitrary)
+
+			// Update local record
+			d->secondaryBus = newSecondary;
+			d->subordinateBus = 0xFF;
+		}
 	}
 
 	pci_parse_bars(d);
@@ -209,6 +228,16 @@ static void pci_visit_function(uint8_t bus, uint8_t dev, uint8_t func, bool enab
 	// Recurse into secondary bus for bridges
 	if (d->isBridge && d->secondaryBus > 0 && d->secondaryBus <= d->subordinateBus) {
 		pci_scan_bus(d->secondaryBus, enableBridges);
+
+		// If we assigned bus numbers dynamically, tighten the subordinate bus number
+		if (enableBridges) {
+			uint8_t lastUsed = (uint8_t)(g_nextBus - 1);
+			if (lastUsed < d->secondaryBus) lastUsed = d->secondaryBus;
+			if (lastUsed != d->subordinateBus) {
+				PCI_ConfigWrite8(bus, dev, func, 0x1A, lastUsed);
+				d->subordinateBus = lastUsed;
+			}
+		}
 	}
 }
 
@@ -224,6 +253,8 @@ void PCI_Init(void)
 	if (!g_pciDevices) {
 		g_pciDevices = List_Create();
 	}
+
+	PCI_Rescan(true);
 }
 
 List* PCI_GetDeviceList(void)
@@ -236,6 +267,8 @@ void PCI_Rescan(bool enableBridges)
 {
 	if (!g_pciDevices) PCI_Init();
 	g_epoch++;
+	// Start assigning new bus numbers from 1 for any unconfigured bridges
+	g_nextBus = 1;
 	pci_scan_bus(0, enableBridges);
 	pci_remove_not_seen();
 }
@@ -296,3 +329,49 @@ void PCI_DisableDevice(PCIDevice* dev)
 	dev->command = cmd;
 }
 
+char* PCI_GetClassName(PCIDeviceClass class)
+{
+	switch (class)
+	{
+	case PCI_DEVICE_CLASS_UNKNOWN:
+		return "Unknown";
+	case PCI_DEVICE_CLASS_STORAGE:
+		return "Storage Controller";
+	case PCI_DEVICE_CLASS_NETWORK:
+		return "Network Controller";
+	case PCI_DEVICE_CLASS_DISPLAY:
+		return "Display Controller";
+	case PCI_DEVICE_CLASS_MULTIMEDIA:
+		return "Multimedia Device";
+	case PCI_DEVICE_CLASS_MEMORY:
+		return "Memory Controller";
+	case PCI_DEVICE_CLASS_BRIDGE:
+		return "Bridge Device";
+	case PCI_DEVICE_CLASS_SIMPLE_COMM:
+		return "Simple Communication Controller";
+	case PCI_DEVICE_CLASS_BASE_PERIPH:
+		return "Base System Peripheral";
+	case PCI_DEVICE_CLASS_INPUT:
+		return "Input Device";
+	case PCI_DEVICE_CLASS_DOCKING:
+		return "Docking Station";
+	case PCI_DEVICE_CLASS_PROCESSOR:
+		return "Processor";
+	case PCI_DEVICE_CLASS_SERIAL_BUS:
+		return "Serial Bus Controller";
+	case PCI_DEVICE_CLASS_WIRELESS:
+		return "Wireless Controller";
+	case PCI_DEVICE_CLASS_INTELLIGENT_IO:
+		return "Intelligent I/O Controller";
+	case PCI_DEVICE_CLASS_SATELLITE_COMM:
+		return "Satellite Communication Controller";
+	case PCI_DEVICE_CLASS_ENCRYPTION:
+		return "Encryption/Decryption Controller";
+	case PCI_DEVICE_CLASS_SIGNAL_PROCESSING:
+		return "Signal Processing Controller";
+	case PCI_DEVICE_CLASS_OTHER:
+		return "Other Device";
+	default:
+		return "Unknown";
+	}
+}

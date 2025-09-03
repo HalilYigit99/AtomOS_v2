@@ -53,20 +53,16 @@ void __boot_kernel_start(void)
     acpi_init();
 
     // APIC varsa onu kullan, yoksa PIC'e düş
-    // if (acpi_get_madt() && apic_init()) 
-    // {
-    //     system_driver_register(&apic_driver);
-    //     system_driver_enable(&apic_driver);
-    //     LOG("Using APIC interrupt controller");
-    // } else {
-    //     system_driver_register(&pic8259_driver);
-    //     system_driver_enable(&pic8259_driver);
-    //     LOG("Using PIC8259 interrupt controller");
-    // }
-
-    system_driver_register(&pic8259_driver);
-    system_driver_enable(&pic8259_driver);
-    LOG("Using PIC8259 interrupt controller");
+    if (acpi_get_madt()) 
+    {
+        system_driver_register(&apic_driver);
+        system_driver_enable(&apic_driver);
+        LOG("Using APIC interrupt controller");
+    } else {
+        system_driver_register(&pic8259_driver);
+        system_driver_enable(&pic8259_driver);
+        LOG("Using PIC8259 interrupt controller");
+    }
 
     // PIT (system tick)
     system_driver_register(&pit_driver);
@@ -80,8 +76,6 @@ void __boot_kernel_start(void)
 
     system_driver_enable(&ps2kbd_driver);
     system_driver_enable(&ps2mouse_driver);
-
-    acpi_sci_init();
     
     gfx_init();
 

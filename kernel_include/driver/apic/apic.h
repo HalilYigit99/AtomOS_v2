@@ -70,6 +70,10 @@ void ioapic_set_redir(uint32_t gsi, uint8_t vector, uint8_t lapic_id, uint32_t f
 void ioapic_mask_gsi(uint32_t gsi, bool mask);
 bool ioapic_is_masked(uint32_t gsi);
 
+/* Debug helpers */
+uint64_t ioapic_read_redir_gsi(uint32_t gsi);
+void ioapic_debug_dump_gsi(uint32_t gsi, const char* tag);
+
 #ifdef __cplusplus
 }
 #endif

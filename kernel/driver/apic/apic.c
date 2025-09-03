@@ -154,17 +154,22 @@ static void apic_irqc_enable(uint32_t irq)
 {
     /* Unmask corresponding GSI */
     if (irq < 24) ioapic_mask_gsi(s_irq_map[irq].gsi, false);
+    LOG("APIC: IRQ%u enabled", (size_t)irq);
+    if (irq < 24) ioapic_debug_dump_gsi(s_irq_map[irq].gsi, "after enable");
 }
 
 static void apic_irqc_disable(uint32_t irq)
 {
     if (irq < 24) ioapic_mask_gsi(s_irq_map[irq].gsi, true);
+    LOG("APIC: IRQ%u disabled", (size_t)irq);
+    if (irq < 24) ioapic_debug_dump_gsi(s_irq_map[irq].gsi, "after disable");
 }
 
 static void apic_irqc_ack(uint32_t irq)
 {
     (void)irq; // IOAPIC doesn't need EOI; LAPIC does
     lapic_eoi();
+    LOG("APIC: EOI for IRQ%u", (size_t)irq);
 }
 
 static void apic_irqc_setprio(uint32_t irq, uint8_t prio)
@@ -189,6 +194,13 @@ static void apic_irqc_reg(uint32_t irq, void (*handler)(void))
     uint8_t vector = 32 + (uint8_t)irq;
     LOG("APIC: register handler IRQ%u -> vector %u @ %p", irq, vector, handler);
     idt_set_gate(vector, (size_t)(uintptr_t)handler);
+    /* Handler sonrası hattı aç (redir girişleri başlangıçta maskeli). */
+    if (irq < 24) {
+        uint32_t gsi = s_irq_map[irq].gsi;
+        ioapic_mask_gsi(gsi, false);
+        LOG("APIC: IRQ%u (GSI%u) unmasked after register", irq, gsi);
+    ioapic_debug_dump_gsi(gsi, "after register");
+    }
 }
 
 static void apic_irqc_unreg(uint32_t irq)
@@ -222,6 +234,10 @@ static void apic_irqc_reg_gsi(uint32_t gsi, void (*handler)(void)) {
     uint8_t vector = 32 + (uint8_t)irq;
     LOG("APIC: register handler GSI%u -> IRQ%u vector %u @ %p", gsi, (unsigned)irq, vector, handler);
     idt_set_gate(vector, (size_t)(uintptr_t)handler);
+    /* Doğrudan GSI verilen durumda hattı aç. */
+    ioapic_mask_gsi(gsi, false);
+    LOG("APIC: GSI%u unmasked after register", gsi);
+    ioapic_debug_dump_gsi(gsi, "after register");
 }
 static void apic_irqc_unreg_gsi(uint32_t gsi) {
     uint32_t irq = (gsi < 256 && s_gsi_to_irq[gsi] != GSI_UNMAPPED) ? s_gsi_to_irq[gsi] : gsi;
@@ -260,12 +276,17 @@ static bool apic_drv_init(void)
 static void apic_drv_enable(void)
 {
     /* nothing specific; enabling an IRQ happens via IRQController */
+    apic_driver.enabled = true;
 }
 
 static void apic_drv_disable(void)
 {
     /* mask all legacy lines */
-    for (uint32_t irq = 0; irq < 16; ++irq) ioapic_mask_gsi(s_gsi_base + irq, true);
+    for (uint32_t irq = 0; irq < 16; ++irq) {
+        uint32_t gsi = (irq < 24) ? s_irq_map[irq].gsi : (s_gsi_base + irq);
+        ioapic_mask_gsi(gsi, true);
+    }
+    apic_driver.enabled = false;
 }
 
 /* Public wrappers to match apic.h high-level API */

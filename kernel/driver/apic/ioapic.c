@@ -89,6 +89,27 @@ static inline void ioapic_write_redir_idx(int apic_idx, uint32_t index, uint64_t
     ioapic_write_win(mmio, (uint32_t)(value >> 32));
 }
 
+/* Debug helpers: read and dump a GSI redirection entry */
+uint64_t ioapic_read_redir_gsi(uint32_t gsi)
+{
+    int apic_idx = ioapic_index_for_gsi(gsi);
+    if (apic_idx < 0) return 0ULL;
+    uint32_t index = gsi - s_ioapics[apic_idx].gsi_base;
+    return ioapic_read_redir_idx(apic_idx, index);
+}
+
+void ioapic_debug_dump_gsi(uint32_t gsi, const char* tag)
+{
+    uint64_t e = ioapic_read_redir_gsi(gsi);
+    uint8_t vector = (uint8_t)(e & 0xFF);
+    bool masked = (e & IOAPIC_REDIR_MASKED) != 0;
+    bool level  = (e & IOAPIC_REDIR_LEVEL) != 0;
+    bool low    = (e & IOAPIC_REDIR_ACTIVE_LOW) != 0;
+    uint8_t dest = (uint8_t)(e >> 56);
+    LOG("IOAPIC: dump GSI%u [%s] -> vec=%u masked=%u level=%u low=%u destAPIC=%u raw=0x%016llx",
+        gsi, tag ? tag : "", vector, masked, level, low, dest, (unsigned long long)e);
+}
+
 void ioapic_set_redir(uint32_t gsi, uint8_t vector, uint8_t lapic_id, uint32_t flags, bool mask)
 {
     int apic_idx = ioapic_index_for_gsi(gsi);

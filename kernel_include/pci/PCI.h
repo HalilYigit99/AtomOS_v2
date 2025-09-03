@@ -28,6 +28,28 @@ extern "C" {
 #define PCI_CLASS_BRIDGE     0x06
 #define PCI_SUBCLASS_PCI_TO_PCI 0x04
 
+typedef enum {
+	PCI_DEVICE_CLASS_UNKNOWN = 0,
+	PCI_DEVICE_CLASS_STORAGE,
+	PCI_DEVICE_CLASS_NETWORK,
+	PCI_DEVICE_CLASS_DISPLAY,
+	PCI_DEVICE_CLASS_MULTIMEDIA,
+	PCI_DEVICE_CLASS_MEMORY,
+	PCI_DEVICE_CLASS_BRIDGE,
+	PCI_DEVICE_CLASS_SIMPLE_COMM,
+	PCI_DEVICE_CLASS_BASE_PERIPH,
+	PCI_DEVICE_CLASS_INPUT,
+	PCI_DEVICE_CLASS_DOCKING,
+	PCI_DEVICE_CLASS_PROCESSOR,
+	PCI_DEVICE_CLASS_SERIAL_BUS,
+	PCI_DEVICE_CLASS_WIRELESS,
+	PCI_DEVICE_CLASS_INTELLIGENT_IO,
+	PCI_DEVICE_CLASS_SATELLITE_COMM,
+	PCI_DEVICE_CLASS_ENCRYPTION,
+	PCI_DEVICE_CLASS_SIGNAL_PROCESSING,
+	PCI_DEVICE_CLASS_OTHER
+} PCIDeviceClass;
+
 typedef struct PCIBAR {
 	uint64_t address;    // Physical address for MMIO or I/O port base
 	uint32_t size;       // Optional, 0 if unknown
@@ -97,6 +119,8 @@ uint8_t  PCI_ConfigRead8 (uint8_t bus, uint8_t dev, uint8_t func, uint8_t offset
 void PCI_ConfigWrite32(uint8_t bus, uint8_t dev, uint8_t func, uint8_t offset, uint32_t value);
 void PCI_ConfigWrite16(uint8_t bus, uint8_t dev, uint8_t func, uint8_t offset, uint16_t value);
 void PCI_ConfigWrite8 (uint8_t bus, uint8_t dev, uint8_t func, uint8_t offset, uint8_t  value);
+
+char* PCI_GetClassName(PCIDeviceClass class);
 
 #ifdef __cplusplus
 }

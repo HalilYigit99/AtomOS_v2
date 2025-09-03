@@ -18,6 +18,7 @@ typedef enum {
     DRIVER_TYPE_AUDIO = 6,      // Audio devices
     DRIVER_TYPE_TIMER = 7,      // Timer devices
     DRIVER_TYPE_POWER = 8,      // Power management devices
+    DRIVER_TYPE_DISPLAY = 9     // Display devices (e.g., monitors)
 } DriverType;
 
 typedef struct {
@@ -29,6 +30,7 @@ typedef struct {
     void (*enable)(); // Function pointer to enable the driver
     void (*disable)(); // Function pointer to disable the driver
     DriverType type;    // Type of the driver
+    uint8_t driverSpecific[]; // Placeholder for driver-specific data
 } DriverBase;
 
 void system_driver_register(DriverBase* driver);
