@@ -114,6 +114,31 @@ static bool apic_madt_setup(void)
     return true;
 }
 
+/* Pre-sanitize: mask PIC and sanitize LAPIC before enabling */
+static inline void pic_mask_all(void) {
+    outb(0x21, 0xFF);
+    outb(0xA1, 0xFF);
+    LOG("APIC: PIC masked (pre)");
+}
+
+static void lapic_sanitize_state(void)
+{
+    /* Block everything until we re-enable */
+    lapic_write(0x080, 0xFF); /* TPR = 0xFF */
+    /* Mask LVTs we touch */
+    uint32_t v;
+    v = lapic_read(LAPIC_REG_LVT_LINT0); v |= (1u << 16); lapic_write(LAPIC_REG_LVT_LINT0, v);
+    v = lapic_read(LAPIC_REG_LVT_LINT1); v |= (1u << 16); lapic_write(LAPIC_REG_LVT_LINT1, v);
+    v = lapic_read(LAPIC_REG_LVT_TIMER); v |= (1u << 16); lapic_write(LAPIC_REG_LVT_TIMER, v);
+    v = lapic_read(LAPIC_REG_LVT_ERROR); v |= (1u << 16); lapic_write(LAPIC_REG_LVT_ERROR, v);
+    /* Disable SVR and set spurious vector to 0xFF */
+    v = lapic_read(LAPIC_REG_SVR);
+    v &= ~LAPIC_SVR_APIC_ENABLE;
+    v = (v & ~0xFFu) | 0xFFu;
+    lapic_write(LAPIC_REG_SVR, v);
+    lapic_eoi();
+    LOG("APIC: LAPIC sanitized");
+}
 static void apic_route_legacy_to_apic(void)
 {
     // IMCR üzerinden PIC -> APIC yönlendirmesi (eski uyumlu sistemler için)
@@ -169,7 +194,6 @@ static void apic_irqc_ack(uint32_t irq)
 {
     (void)irq; // IOAPIC doesn't need EOI; LAPIC does
     lapic_eoi();
-    LOG("APIC: EOI for IRQ%u", (size_t)irq);
 }
 
 static void apic_irqc_setprio(uint32_t irq, uint8_t prio)
@@ -194,13 +218,6 @@ static void apic_irqc_reg(uint32_t irq, void (*handler)(void))
     uint8_t vector = 32 + (uint8_t)irq;
     LOG("APIC: register handler IRQ%u -> vector %u @ %p", irq, vector, handler);
     idt_set_gate(vector, (size_t)(uintptr_t)handler);
-    /* Handler sonrası hattı aç (redir girişleri başlangıçta maskeli). */
-    if (irq < 24) {
-        uint32_t gsi = s_irq_map[irq].gsi;
-        ioapic_mask_gsi(gsi, false);
-        LOG("APIC: IRQ%u (GSI%u) unmasked after register", irq, gsi);
-    ioapic_debug_dump_gsi(gsi, "after register");
-    }
 }
 
 static void apic_irqc_unreg(uint32_t irq)
@@ -234,10 +251,6 @@ static void apic_irqc_reg_gsi(uint32_t gsi, void (*handler)(void)) {
     uint8_t vector = 32 + (uint8_t)irq;
     LOG("APIC: register handler GSI%u -> IRQ%u vector %u @ %p", gsi, (unsigned)irq, vector, handler);
     idt_set_gate(vector, (size_t)(uintptr_t)handler);
-    /* Doğrudan GSI verilen durumda hattı aç. */
-    ioapic_mask_gsi(gsi, false);
-    LOG("APIC: GSI%u unmasked after register", gsi);
-    ioapic_debug_dump_gsi(gsi, "after register");
 }
 static void apic_irqc_unreg_gsi(uint32_t gsi) {
     uint32_t irq = (gsi < 256 && s_gsi_to_irq[gsi] != GSI_UNMAPPED) ? s_gsi_to_irq[gsi] : gsi;
@@ -248,7 +261,13 @@ static void apic_irqc_unreg_gsi(uint32_t gsi) {
 /* DriverBase callbacks */
 static bool apic_drv_init(void)
 {
+    /* Ensure PIC masked before we touch APICs */
+    pic_mask_all();
     if (!apic_madt_setup()) return false;
+    /* Sanitize any firmware state */
+    lapic_sanitize_state();
+    ioapic_mask_all();
+    /* Now enable LAPIC cleanly */
     lapic_enable_controller();
     // Verify LAPIC enable via SVR bit
     uint32_t svr_chk = lapic_read(LAPIC_REG_SVR);
@@ -256,20 +275,18 @@ static bool apic_drv_init(void)
         ERROR("APIC: LAPIC not enabled (SVR=0x%x)", svr_chk);
         return false;
     }
+    // Re-read LAPIC ID after enabling controller; MMIO read may have failed earlier
+    // if firmware left the CPU in x2APIC mode. Using a stale 0 would break IOAPIC routing
+    // on multi-core VMs by targeting a non-existent APIC ID.
+    s_lapic_id = lapic_get_id();
+    LOG("APIC: Using LAPIC id=%u for IOAPIC routing", s_lapic_id);
     if (!apic_program_legacy_irqs()) return false;
     apic_route_legacy_to_apic();
-    // Legacy PIC'i maskele (spurious IRQ'ları önle)
-    outb(0x21, 0xFF); // master PIC mask
-    outb(0xA1, 0xFF); // slave PIC mask
+    // PIC already masked; keep all GSIs masked until drivers enable
     s_apic_ready = true;
     irq_controller = &apic_irq_controller;
     LOG("APIC: initialized (LAPIC id=%u, GSIs=%u from %u)", s_lapic_id, s_gsi_count, s_gsi_base);
-    // İlk test için PIT (IRQ0) hattını aç ve redir'i doğrula
-    ioapic_mask_gsi(s_irq_map[0].gsi, false);
-    if (ioapic_is_masked(s_irq_map[0].gsi)) {
-        ERROR("APIC: Failed to unmask GSI%u (IRQ0)", s_irq_map[0].gsi);
-        return false;
-    }
+    // Do not unmask any line here
     return true;
 }
 

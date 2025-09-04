@@ -147,3 +147,19 @@ bool ioapic_is_masked(uint32_t gsi)
     uint64_t e = ioapic_read_redir_idx(apic_idx, index);
     return (e & IOAPIC_REDIR_MASKED) != 0;
 }
+
+void ioapic_mask_all(void)
+{
+    for (uint32_t i = 0; i < s_ioapic_count; ++i) {
+        // uint32_t base = s_ioapics[i].gsi_base;
+        uint32_t n = s_ioapics[i].redirs;
+        for (uint32_t j = 0; j < n; ++j) {
+            uint64_t e = ioapic_read_redir_idx(i, j);
+            if ((e & IOAPIC_REDIR_MASKED) == 0) {
+                e |= (uint64_t)IOAPIC_REDIR_MASKED;
+                ioapic_write_redir_idx(i, j, e);
+            }
+        }
+    }
+    LOG("IOAPIC: all redirection entries masked");
+}

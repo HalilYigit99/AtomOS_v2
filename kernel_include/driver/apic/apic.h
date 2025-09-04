@@ -69,6 +69,7 @@ uint32_t ioapic_max_redirs(void);
 void ioapic_set_redir(uint32_t gsi, uint8_t vector, uint8_t lapic_id, uint32_t flags, bool mask);
 void ioapic_mask_gsi(uint32_t gsi, bool mask);
 bool ioapic_is_masked(uint32_t gsi);
+void ioapic_mask_all(void);
 
 /* Debug helpers */
 uint64_t ioapic_read_redir_gsi(uint32_t gsi);
