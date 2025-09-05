@@ -10,11 +10,16 @@
 static volatile size_t screen_width;
 static volatile size_t screen_height;
 
+size_t gfx_videoModeCount;
+
 List *gfx_buffers;
 static bool gfx_buffers_busy;
 
 gfx_buffer *hardware_buffer;
 gfx_buffer *screen_buffer;
+
+void* screen_fb_Address = NULL;
+uint8_t screen_bpp = 0;
 
 void gfx_draw_task();
 
@@ -35,8 +40,10 @@ void gfx_screen_unregister_buffer(gfx_buffer *buffer)
 void gfx_init()
 {
 
-    screen_height = mb2_framebuffer->framebuffer_height;
-    screen_width = mb2_framebuffer->framebuffer_width;
+    if (screen_height == 0) screen_height = mb2_framebuffer->framebuffer_height;
+    if (screen_width == 0) screen_width = mb2_framebuffer->framebuffer_width;
+    if (screen_fb_Address == 0) screen_fb_Address = (void*)(size_t)mb2_framebuffer->framebuffer_addr; 
+    if (screen_bpp == 0) screen_bpp = mb2_framebuffer->framebuffer_bpp;
 
     // Initialize hardware buffer
     hardware_buffer = (gfx_buffer *)malloc(sizeof(gfx_buffer));
@@ -50,10 +57,10 @@ void gfx_init()
     hardware_buffer->size.width = screen_width;
     hardware_buffer->size.height = screen_height;
 
-    size_t fb_addr = (size_t)mb2_framebuffer->framebuffer_addr;
+    size_t fb_addr = (size_t)screen_fb_Address;
 
     hardware_buffer->buffer = (void *)fb_addr;
-    hardware_buffer->bpp = mb2_framebuffer->framebuffer_bpp;
+    hardware_buffer->bpp = screen_bpp;
     hardware_buffer->drawBeginLineIndex = 0;
     hardware_buffer->isDirty = true; // Always true
     hardware_buffer->position = (gfx_point){0, 0};
@@ -93,6 +100,8 @@ gfx_buffer *gfx_create_buffer(size_t width, size_t height)
 
     if (!buffer->buffer)
     {
+        LOG("buffer->size.width : %d", (size_t)width);
+        LOG("buffer->size.height : %d", (size_t)height);
         LOG("Failed to allocate buffer memory");
         asm volatile("cli; hlt"); // Halt the system
     }
@@ -524,17 +533,17 @@ void gfx_draw_task()
     }
     else
     {
-        if (mb2_framebuffer->framebuffer_bpp == 32)
+        if (screen_bpp == 32)
         {
             gfx_draw_bpp32();
         }
-        else if (mb2_framebuffer->framebuffer_bpp == 24)
+        else if (screen_bpp == 24)
         {
             gfx_draw_bpp24();
         }
         else
         {
-            ERROR("Unsupported framebuffer bpp: %u", mb2_framebuffer->framebuffer_bpp);
+            ERROR("Unsupported framebuffer bpp: %u", screen_bpp);
         }
     }
 
@@ -542,3 +551,5 @@ void gfx_draw_task()
 
     __mouse_draw();
 }
+
+

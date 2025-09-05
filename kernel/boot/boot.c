@@ -14,6 +14,8 @@ extern DriverBase ps2kbd_driver;
 extern DriverBase ps2mouse_driver;
 extern DriverBase pit_driver;
 extern DriverBase apic_driver;
+extern DriverBase ahci_driver;
+extern DriverBase ata_driver;
 
 extern uint32_t mb2_signature;
 extern uint32_t mb2_tagptr;
@@ -29,9 +31,15 @@ extern void gfx_init();
 extern void acpi_sci_init();
 extern void efi_exit_boot_services();
 
+extern bool apic_supported();
+
+extern void i386_processor_exceptions_init();
+
 void __boot_kernel_start(void)
 {
     debugStream->Open();
+
+    i386_processor_exceptions_init();
 
     LOG("Booting AtomOS Kernel");
 
@@ -60,7 +68,7 @@ void __boot_kernel_start(void)
     }
 
     // APIC varsa onu kullan, yoksa PIC'e düş
-    if (acpi_get_madt()) 
+    if (apic_supported()) 
     {
         LOG("Using APIC interrupt controller");
         system_driver_register(&apic_driver);
@@ -84,6 +92,14 @@ void __boot_kernel_start(void)
     system_driver_enable(&ps2kbd_driver);
     system_driver_enable(&ps2mouse_driver);
     
+    // Storage drivers (AHCI first, then legacy ATA/PATA)
+    LOG("Loading storage drivers...");
+    system_driver_register(&ahci_driver);
+    system_driver_enable(&ahci_driver);
+
+    system_driver_register(&ata_driver);
+    system_driver_enable(&ata_driver);
+
     gfx_init();
 
 }

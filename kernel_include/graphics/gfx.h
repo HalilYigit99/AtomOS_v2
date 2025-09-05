@@ -32,6 +32,7 @@ void gfx_draw_text(gfx_buffer* buffer, int x, int y, char* text, gfx_color color
 
 void gfx_draw_bitmap(gfx_buffer* buffer, int x, int y, void* bitmap, size_t width, size_t height);
 
+gfx_videomode* get_video_mode(size_t index);
 
 #ifdef __cplusplus
 }

@@ -51,8 +51,6 @@ ps2mouse_isr:
     ; Call the handler function
     call ps2mouse_isr_handler
 
-
-
     ; Restore registers
     popad
 

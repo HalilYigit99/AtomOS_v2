@@ -17,6 +17,14 @@ static irq_route_t s_irq_map[24]; // ISA (0..15) + pay if needed
 static uint32_t s_gsi_to_irq[256]; // simple reverse map for GSIs within small range
 #define GSI_UNMAPPED 0xFFFFFFFFu
 
+bool apic_supported()
+{
+    size_t regA, regB, regC, regD;
+    arch_cpuid(1, &regA, &regB, &regC, &regD);
+
+    return (regD & (1 << 9)) != 0; // APIC bit
+}
+
 static bool apic_madt_setup(void)
 {
     const acpi_madt* madt = acpi_get_madt();

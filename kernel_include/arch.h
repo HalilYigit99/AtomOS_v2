@@ -30,6 +30,8 @@ extern uint32_t inl(uint16_t port);
 extern void     outl(uint16_t port, uint32_t value);
 extern void     io_wait(void);
 
+extern void arch_cpuid(uint32_t leaf, size_t* regA, size_t* regB, size_t* regC, size_t* regD);
+
 #ifdef __cplusplus
 }
 #endif

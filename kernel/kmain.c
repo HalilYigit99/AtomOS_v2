@@ -15,6 +15,8 @@ extern void acpi_poweroff(); // ACPI power off function
 extern unsigned char logo_128x128_bmp[];
 extern unsigned int logo_128x128_bmp_len;
 
+extern void block_read_test_run(void);
+
 void kmain() {
 
     LOG("Welcome to AtomOS!");
@@ -42,7 +44,7 @@ void kmain() {
     }
 
     if (pit_timer){
-        pit_timer->setFrequency(10); // Set PIT timer frequency to 10Hz (10 ticks per second)
+        pit_timer->setFrequency(1); // Set PIT timer frequency to 1Hz
         pit_timer->add_callback(gfx_draw_task); // Add the cursor update task to the PIT timer callbacks
         LOG("PIT timer callbacks registered");
     }
@@ -68,6 +70,8 @@ void kmain() {
     }
     if (pciDevices->count) LOG("--------------------------------");
 
+    block_read_test_run();
+
     // Clear keyboard input stream
     while (keyboardInputStream.available())
     {
@@ -88,6 +92,18 @@ void kmain() {
                 // Shutdown the system
                 LOG("Shutting down the system...");
                 acpi_poweroff(); // Call the ACPI power off function
+            }else
+            if (c == 'j')
+            {
+                uint8_t* a = (uint8_t*)0xFFFFFFFF;
+                *a = 5;
+                if (*a == 5) {
+                    LOG("???");
+                }else {
+                    LOG("OK!");
+                }
+            }else {
+                if (c) LOG("Key pressed : %c (%08x)", c, c);
             }
         }else asm volatile ("hlt"); // No input, wait
     }
