@@ -183,6 +183,14 @@ typedef struct _EFI_DEVICE_PATH_PROTOCOL EFI_DEVICE_PATH_PROTOCOL;
 /* Forward declare Graphics Output Protocol to be visible in function typedefs */
 typedef struct _EFI_GRAPHICS_OUTPUT_PROTOCOL EFI_GRAPHICS_OUTPUT_PROTOCOL;
 
+/* Reset Types (UEFI Spec compliant) */
+typedef enum {
+    EfiResetCold = 0,
+    EfiResetWarm = 1,
+    EfiResetShutdown = 2,
+    EfiResetPlatformSpecific = 3
+} EFI_RESET_TYPE;
+
 /* ============================================================================
  * BOOT SERVICES FUNCTION TYPEDEFS
  * ============================================================================ */
@@ -1031,6 +1039,10 @@ struct _EFI_DEVICE_PATH_PROTOCOL {
 #define EFI_FILE_SYSTEM_INFO_GUID \
     { 0x09576E93, 0x6D3F, 0x11D2, {0x8E, 0x39, 0x00, 0xA0, 0xC9, 0x69, 0x72, 0x3B} }
 
+/* UEFI Global Variable GUID (aka EFI_GLOBAL_VARIABLE) */
+#define EFI_GLOBAL_VARIABLE \
+    { 0x8BE4DF61, 0x93CA, 0x11D2, {0xAA, 0x0D, 0x00, 0xE0, 0x98, 0x03, 0x2B, 0x8C} }
+
 /* ============================================================================
  * SIGNATURES
  * ============================================================================ */
@@ -1106,6 +1118,14 @@ struct _EFI_DEVICE_PATH_PROTOCOL {
 
 /* Text attribute macro */
 #define EFI_TEXT_ATTR(fg, bg) ((fg) | ((bg) << 4))
+
+/* UEFI Variable Attributes (subset used) */
+#define EFI_VARIABLE_NON_VOLATILE       0x00000001U
+#define EFI_VARIABLE_BOOTSERVICE_ACCESS 0x00000002U
+#define EFI_VARIABLE_RUNTIME_ACCESS     0x00000004U
+
+/* OS Indications flags (EFI_OS_INDICATIONS) */
+#define EFI_OS_INDICATIONS_BOOT_TO_FW_UI 0x0000000000000001ULL
 
 /* ============================================================================
  * GLOBAL VARIABLES

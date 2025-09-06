@@ -1,6 +1,9 @@
 #include <memory/memory.h>
 #include <memory/heap.h>
 #include <memory/pmm.h>
+#include <efi/efi.h>
+#include <list.h>
+#include <debug/debug.h>
 
 #define HEAP_MAGIC 0xDEADBEEF
 #define HEAP_NODE_MIN_SIZE (sizeof(size_t) * 2)
@@ -22,6 +25,8 @@ extern uint8_t __local_heap_end[];
 HeapRegion* first_heap_region = NULL;
 
 HeapRegion localHeapRegion;
+
+extern List* memory_regions; // From pmm.c
 
 static void initRegion(HeapRegion* region)
 {
@@ -144,8 +149,55 @@ void* heap_alloc(size_t n) {
         void* ptr = alloc_region(region, n);
         if (ptr) {
             return ptr;
+        }else region = region->next;
+    }
+
+    if (memory_regions)
+    {
+
+        LOG("Heap exhausted, attempting to expand...");
+
+        // PMM active ise PMM'den yeni bir heap bölgesi al
+        size_t regionSize = n + (4096 - (n % 4096));  // Align up to page size
+
+        regionSize += 0x1000; // Extra space for HeapNode structures
+
+        void* newRegionPtr = pmm_alloc(regionSize / 1024); // PMM'den KB cinsinden al
+        if (!newRegionPtr) {
+            ERROR("heap_alloc: pmm_alloc failed to allocate new heap region of size %zu bytes", regionSize);
+            return NULL;
         }
-        region = region->next;
+
+        HeapRegion newRegion;
+        newRegion.base = (size_t)(uintptr_t)newRegionPtr;
+        newRegion.size = regionSize;
+        newRegion.next = NULL;
+        initRegion(&newRegion);
+
+        HeapRegion* region = (HeapRegion*)alloc_region(&newRegion, sizeof(HeapRegion));
+        
+        region->base = newRegion.base;
+        region->size = newRegion.size;
+        region->next = NULL;
+
+        // Bağlantı listesinin sonuna ekle
+        HeapRegion* last = first_heap_region;
+        while (last->next) {
+            last = last->next;
+        }
+
+        last->next = region;
+
+        void* _Ret = alloc_region(region, n);
+        if (!_Ret) {
+            ERROR("heap_alloc: alloc_region failed after expanding heap");
+            return NULL;
+        }
+
+        return _Ret;
+
+    }else {
+        ERROR("heap_alloc: memory_regions is NULL, cannot allocate more heap");
     }
 
     return NULL; // No memory available
@@ -225,4 +277,18 @@ void* heap_aligned_alloc(size_t alignment, size_t size)
     node->next = NULL;
 
     return (void*)aligned_ptr;
+}
+
+void heap_register_region(HeapRegion* region)
+{
+    if (region == NULL) return;
+    if (region->base == 0 || region->size == 0) return;
+    if (region->size < 2 * sizeof(HeapNode)) return;
+
+    // Initialize the region's free list
+    initRegion(region);
+
+    // Insert at the end of the linked list
+    region->next = NULL;
+    first_heap_region->next = region;
 }

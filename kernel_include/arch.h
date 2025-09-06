@@ -16,6 +16,95 @@ extern "C" {
 #include <stddef.h>
 #include <stdbool.h>
 
+typedef struct {
+    union {
+        uint64_t rax;
+        uint32_t eax;
+        uint16_t ax;
+        struct {
+            uint8_t al;
+            uint8_t ah;
+        };
+    };
+    union {
+        uint64_t rbx;
+        uint32_t ebx;
+        uint16_t bx;
+        struct {
+            uint8_t bl;
+            uint8_t bh;
+        };
+    };
+    union {
+        uint64_t rcx;
+        uint32_t ecx;
+        uint16_t cx;
+        struct {
+            uint8_t cl;
+            uint8_t ch;
+        };
+    };
+    union {
+        uint64_t rdx;
+        uint32_t edx;
+        uint16_t dx;
+        struct {
+            uint8_t dl;
+            uint8_t dh;
+        };
+    };
+    union {
+        uint64_t rsi;
+        uint32_t esi;
+        uint16_t si;
+        struct {
+            uint8_t sil;
+            uint8_t sih; // Note: sih is not commonly used
+        };
+    };
+    union {
+        uint64_t rdi;
+        uint32_t edi;
+        uint16_t di;
+        struct {
+            uint8_t dil;
+            uint8_t dih; // Note: dih is not commonly used
+        };
+    };
+    union {
+        uint64_t rsp;
+        uint32_t esp;
+        uint16_t sp;
+        struct {
+            uint8_t spl;
+            uint8_t sph; // Note: sph is not commonly used
+        };
+    };
+    union {
+        uint64_t rbp;
+        uint32_t ebp;
+        uint16_t bp;
+        struct {
+            uint8_t bpl;
+            uint8_t bph; // Note: bph is not commonly used
+        };
+    };
+
+    /* Segment registers and flags for BIOS/V86/real-mode interactions */
+    union {
+        uint64_t rflags;
+        uint32_t eflags;
+        uint16_t flags;
+    };
+
+    uint16_t cs;
+    uint16_t ds;
+    uint16_t es;
+    uint16_t fs;
+    uint16_t gs;
+    uint16_t ss;
+} arch_processor_regs_t;
+
 void idt_set_gate(uint8_t vector, size_t offset);
 void idt_reset_gate(uint8_t vector);
 

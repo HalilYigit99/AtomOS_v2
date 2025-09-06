@@ -7,6 +7,8 @@
 #include <irq/IRQ.h>
 #include <time/timer.h>
 #include <pci/PCI.h>
+#include <memory/memory.h>
+#include <arch.h>
 
 void gfx_draw_task();
 
@@ -15,7 +17,7 @@ extern void acpi_poweroff(); // ACPI power off function
 extern unsigned char logo_128x128_bmp[];
 extern unsigned int logo_128x128_bmp_len;
 
-extern void block_read_test_run(void);
+extern void efi_reset_to_firmware();
 
 void kmain() {
 
@@ -51,27 +53,6 @@ void kmain() {
 
     gfx_draw_task(); // Initial draw to show the logo
 
-    LOG("Scanning PCI devices...");
-
-    List* pciDevices = PCI_GetDeviceList();
-
-    LOG("PCI devices found: %zu", pciDevices->count);
-
-    if (pciDevices->count) LOG("--------------------------------");
-    for (size_t i = 0; i < pciDevices->count; ++i) {
-        PCIDevice* dev = (PCIDevice*)List_GetAt(pciDevices, i);
-        if (dev) {
-            LOG("PCI Device: \n    Category: '%s'\n    Bus: %d\n    Vendor: %04x \n    Device: %04x\n    Function: %02x\n    Class: %02x \n    Subclass: %02x \n    ProgIF: %02x",
-                PCI_GetClassName((PCIDeviceClass)dev->classCode),
-                (size_t)dev->bus, dev->vendorID, 
-                dev->deviceID, dev->function,
-                dev->classCode, dev->subclass, dev->progIF);
-        }
-    }
-    if (pciDevices->count) LOG("--------------------------------");
-
-    block_read_test_run();
-
     // Clear keyboard input stream
     while (keyboardInputStream.available())
     {
@@ -80,6 +61,10 @@ void kmain() {
     }
 
     LOG("Press 's' to shutdown the system.");
+    if (mb2_is_efi_boot) {
+        LOG("Press 'r' to reboot to firmware (UEFI).");
+    }
+    LOG("Press 'j' to trigger a page fault (for testing).");
     while (1) {
         
         if (keyboardInputStream.available())
@@ -102,6 +87,11 @@ void kmain() {
                 }else {
                     LOG("OK!");
                 }
+            }
+            else
+            if (c == 'r' && mb2_is_efi_boot) {
+                LOG("Rebooting to firmware (UEFI)...");
+                efi_reset_to_firmware();
             }else {
                 if (c) LOG("Key pressed : %c (%08x)", c, c);
             }

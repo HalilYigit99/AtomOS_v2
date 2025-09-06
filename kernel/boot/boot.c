@@ -8,6 +8,7 @@
 #include <keyboard/Keyboard.h>
 #include <mouse/mouse.h>
 #include <driver/apic/apic.h>
+#include <memory/pmm.h>
 
 extern DriverBase pic8259_driver;
 extern DriverBase ps2kbd_driver;
@@ -34,13 +35,15 @@ extern void efi_exit_boot_services();
 extern bool apic_supported();
 
 extern void i386_processor_exceptions_init();
+extern void i386_tss_install(void);
+extern void print_memory_regions();;
 
 void __boot_kernel_start(void)
 {
     debugStream->Open();
 
     i386_processor_exceptions_init();
-
+    
     LOG("Booting AtomOS Kernel");
 
     LOG("Multiboot2 Signature: 0x%08X", mb2_signature);
@@ -66,6 +69,13 @@ void __boot_kernel_start(void)
         LOG("Exiting boot services");
         efi_exit_boot_services();
     }
+
+    void* table = pmm_alloc(1); // Kernel için ilk sayfa tablosu
+
+    if (table) LOG("Initial page table allocated at %p", table);
+    else ERROR("Failed to allocate initial page table");
+
+    print_memory_regions();
 
     // APIC varsa onu kullan, yoksa PIC'e düş
     if (apic_supported()) 
