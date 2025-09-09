@@ -69,6 +69,7 @@ void gfx_init()
     hardware_buffer->bpp = screen_bpp;
     hardware_buffer->drawBeginLineIndex = 0;
     hardware_buffer->isDirty = true; // Always true
+    hardware_buffer->suppress_draw = false; // default: allow drawing
     hardware_buffer->position = (gfx_point){0, 0};
 
     gfx_buffers = List_Create();
@@ -114,6 +115,7 @@ gfx_buffer* gfx_create_buffer(size_t width, size_t height)
 
     buffer->bpp = 32; // Assuming 32 bits per pixel
     buffer->drawBeginLineIndex = 0;
+    buffer->suppress_draw = false; // default: allow drawing
     buffer->position = (gfx_point){0, 0};
 
     return buffer;
@@ -551,6 +553,11 @@ void gfx_draw_task()
     }
     else
     {
+        // If top buffer requests suppression, skip this draw cycle entirely
+        gfx_buffer *buffer = (gfx_buffer *)List_GetAt(gfx_buffers, 0);
+        if (buffer && buffer->suppress_draw) {
+            return;
+        }
         if (screen_bpp == 32)
         {
             gfx_draw_bpp32();

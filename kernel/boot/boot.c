@@ -11,6 +11,7 @@
 #include <memory/pmm.h>
 #include <time/timer.h>
 #include <stream/OutputStream.h>
+#include <task/PeriodicTask.h>
 
 extern DriverBase pic8259_driver;
 extern DriverBase ps2kbd_driver;
@@ -50,12 +51,20 @@ extern void print_memory_regions();
 
 extern void gfx_draw_task();
 
+PeriodicTask* gfx_task = NULL;
+
+void uptime_counter_task()
+{
+    uptimeMs++;
+    periodic_task_run_all();
+}
+
 void __boot_kernel_start(void)
 {
     debugStream->Open();
 
     i386_processor_exceptions_init();
-    
+
     LOG("Booting AtomOS Kernel");
 
     LOG("Multiboot2 Signature: 0x%08X", mb2_signature);
@@ -65,9 +74,12 @@ void __boot_kernel_start(void)
 
     heap_init(); // Initialize local heap
 
-    if (mb2_is_efi_boot) {
+    if (mb2_is_efi_boot)
+    {
         efi_init();
-    }else {
+    }
+    else
+    {
         bios_init();
     }
 
@@ -82,20 +94,24 @@ void __boot_kernel_start(void)
         efi_exit_boot_services();
     }
 
-    void* table = pmm_alloc(1); // Kernel için ilk sayfa tablosu
+    void *table = pmm_alloc(1); // Kernel için ilk sayfa tablosu
 
-    if (table) LOG("Initial page table allocated at %p", table);
-    else ERROR("Failed to allocate initial page table");
+    if (table)
+        LOG("Initial page table allocated at %p", table);
+    else
+        ERROR("Failed to allocate initial page table");
 
     print_memory_regions();
 
     // APIC varsa onu kullan, yoksa PIC'e düş
-    if (apic_supported()) 
+    if (apic_supported())
     {
         LOG("Using APIC interrupt controller");
         system_driver_register(&apic_driver);
         system_driver_enable(&apic_driver);
-    } else {
+    }
+    else
+    {
         LOG("Using PIC8259 interrupt controller");
         system_driver_register(&pic8259_driver);
         system_driver_enable(&pic8259_driver);
@@ -105,13 +121,20 @@ void __boot_kernel_start(void)
     system_driver_register(&pit_driver);
     system_driver_enable(&pit_driver);
 
-    gfx_init();
-
     if (pit_timer)
     {
-        pit_timer->setFrequency(10); // 10 Hz
-        pit_timer->add_callback(gfx_draw_task); // Add the gfx redraw task to the PIT timer callbacks
+        pit_timer->setFrequency(1000);            // 1000 Hz
+        pit_timer->add_callback(uptime_counter_task); // Uptime sayaç görevini ekle
     }
+
+    gfx_init();
+
+    gfx_task = periodic_task_create("GFX Task", gfx_draw_task, NULL, 16); // Yaklaşık 60 FPS
+    if (!gfx_task)
+    {
+        ERROR("Failed to create GFX task");
+    }
+    periodic_task_start(gfx_task);
 
     currentOutputStream = &genericOutputStream;
 
@@ -135,7 +158,32 @@ void __boot_kernel_start(void)
 
     system_driver_enable(&ps2kbd_driver);
     system_driver_enable(&ps2mouse_driver);
-    
+
+    char foo;
+
+    mouse_enabled = true;
+
+    LOG("Keyboard and mouse driver test!");
+    LOG("Press any key to continue...");
+
+    asm volatile ("sti"); // Enable interrupts
+
+    while (keyboardInputStream.available() > 0)
+        keyboardInputStream.readChar(&foo); // Clear keyboard buffer
+
+    while (1)
+    {
+        if (keyboardInputStream.available() > 0)
+        {
+            keyboardInputStream.readChar(&foo);
+            if (foo)
+            {
+                LOG("Continuing boot...");
+                break;
+            }
+        }
+    }
+
     // Storage drivers (AHCI first, then legacy ATA/PATA)
     LOG("Loading storage drivers...");
     system_driver_register(&ahci_driver);
@@ -143,5 +191,4 @@ void __boot_kernel_start(void)
 
     system_driver_register(&ata_driver);
     system_driver_enable(&ata_driver);
-
 }

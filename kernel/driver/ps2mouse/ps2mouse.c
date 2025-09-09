@@ -155,18 +155,30 @@ bool ps2mouse_init(void) {
         WARN("PS/2 Mouse: No ACK for reset");
         return false;
     }
-    // Self-test (0xAA) ve opsiyonel device ID (0x00)
-    uint8_t b = 0x00;
-    if (!ps2_read_aux(&b, 200000) || b != 0xAA) {
-        WARN("PS/2 Mouse: Self-test failed (got %02x)", b);
+    // Self-test (0xAA) + opsiyonel device ID (0x00). Bazı kontrolcüler ID'yi önce yollayabiliyor.
+    uint8_t b1 = 0xFF;
+    if (!ps2_read_aux(&b1, 200000)) {
+        WARN("PS/2 Mouse: No BAT/ID after reset");
         return false;
     }
-    // Bazı fareler 0x00 aygıt ID'si yollar; varsa oku ama zorunlu değil
-    if (ps2_wait_output_full(1000)) {
-        uint8_t st = inb(0x64);
-        if ((st & (PS2_STATUS_OBF | PS2_STATUS_AUX)) == (PS2_STATUS_OBF | PS2_STATUS_AUX)) {
-            (void)inb(0x60); // device id (genellikle 0x00)
+    if (b1 == 0xAA) {
+        // BAT ok; varsa ID'yi oku
+        if (ps2_wait_output_full(1000)) {
+            uint8_t st = inb(0x64);
+            if ((st & (PS2_STATUS_OBF | PS2_STATUS_AUX)) == (PS2_STATUS_OBF | PS2_STATUS_AUX)) {
+                (void)inb(0x60); // device id (genellikle 0x00)
+            }
         }
+    } else if (b1 == 0x00) {
+        // Önce ID gelmiş; ardından BAT bekle
+        uint8_t b2 = 0xFF;
+        if (!ps2_read_aux(&b2, 200000) || b2 != 0xAA) {
+            WARN("PS/2 Mouse: Self-test failed (got %02x after ID)", b2);
+            return false;
+        }
+    } else {
+        WARN("PS/2 Mouse: Self-test failed (got %02x)", b1);
+        return false;
     }
 
     // Varsayılan ayarlar (F6)

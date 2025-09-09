@@ -6,10 +6,13 @@ extern "C" {
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 
 // Mouse cursor position variables
 extern int cursor_X;
 extern int cursor_Y;
+
+extern bool mouse_enabled;
 
 // Mouse initialization and drawing functions
 void mouse_init(void);

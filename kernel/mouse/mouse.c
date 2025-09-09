@@ -2,6 +2,8 @@
 #include <stream/OutputStream.h>
 #include <graphics/gfx.h>
 
+bool mouse_enabled = false;
+
 int cursor_X = 300; // Initialize cursor X position
 int cursor_Y = 250; // Initialize cursor Y position
 
@@ -36,6 +38,8 @@ const gfx_color full_cursor_bitmap[13*18] = {
 };
 
 void __mouse_draw() {
+
+    if (mouse_enabled == false || !hardware_buffer) return;
 
     // Draw the cursor bitmap at the current position
     gfx_draw_bitmap(hardware_buffer, cursor_X, cursor_Y, (void*)full_cursor_bitmap, 13, 18);

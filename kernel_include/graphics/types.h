@@ -53,6 +53,7 @@ typedef struct {
     uint32_t bpp; // Bits per pixel
     size_t drawBeginLineIndex; // Index of the first line to draw
     bool isDirty; // If true, the buffer needs to be redrawn
+    bool suppress_draw; // When true, global draw task should skip flushing this buffer
     gfx_point position; // Position of the buffer on the screen
 } gfx_buffer;
 

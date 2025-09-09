@@ -8,6 +8,7 @@
 #include <util/VPrintf.h>
 #include <time/timer.h>
 #include <list.h>
+#include <task/PeriodicTask.h>
 
 // Scrollback ring buffer implementation (block-based, linear growth)
 // - Stores lines in fixed-size blocks to reduce realloc/memmove and fragmentation.
@@ -230,6 +231,8 @@ static void __gfxterm_draw_cursor(GFXTerminal* term, bool show);
 static void __gfxterm_scroll_content(GFXTerminal* term, size_t up);
 static size_t __gfxterm_frame_tick = 0; // global frame tick for blink scheduling
 
+PeriodicTask* gfxterm_task = NULL;
+
 void gfxterm_draw_task()
 {
     if (List_IsEmpty(terminals)) return;
@@ -239,6 +242,10 @@ void gfxterm_draw_task()
         GFXTerminal* term = (GFXTerminal*)node->data;
         if (!term) continue;
         if (!term->visible) continue;
+        // If terminal requests suppression (active write), skip drawing this cycle
+        if (term->framebuffer && term->framebuffer->suppress_draw) {
+            continue;
+        }
         bool redrawn = false;
         if (term->dirty) {
             gfxterm_redraw(term);
@@ -392,9 +399,17 @@ GFXTerminal *gfxterm_create(const char *name)
 
     if (gfxRedrawTaskActive == false)
     {
-        if (pit_timer){
-            pit_timer->add_callback(gfxterm_draw_task); // Add the cursor update task to the PIT timer callbacks
+        gfxterm_task = periodic_task_create("GFXTerm Task", NULL, gfxterm_draw_task, 100); // ~10 FPS
+        if (!gfxterm_task)
+        {
+            ERROR("Failed to create GFXTerm task");
+            // Cleanup
+            gfxterm_visible(term, false);
+            List_Remove(terminals, term);
+            gfxterm_destroy(term);
+            return NULL;
         }
+        periodic_task_start(gfxterm_task);
         gfxRedrawTaskActive = true;
     }
 
@@ -465,6 +480,13 @@ void gfxterm_putChar(GFXTerminal *term, char c)
     if (!term)
         return;
 
+    // Suppress global flush while updating terminal framebuffer
+    bool __prev_suppress = false;
+    if (term->framebuffer) {
+        __prev_suppress = term->framebuffer->suppress_draw;
+        term->framebuffer->suppress_draw = true;
+    }
+
     // If cursor overlay is visible at old position, erase it before modifying content/position
     if (term->cursor_enabled && term->cursor_visible) {
         __gfxterm_draw_cursor(term, false);
@@ -528,6 +550,10 @@ void gfxterm_putChar(GFXTerminal *term, char c)
     term->cursorPos.x = curx;
     term->cursorPos.y = cury;
 
+    // Restore suppression state
+    if (term->framebuffer) {
+        term->framebuffer->suppress_draw = __prev_suppress;
+    }
 }
 
 // Internal content scroll used by writer when reaching bottom
@@ -636,10 +662,19 @@ void gfxterm_write(GFXTerminal *term, const char *str)
 {
     if (!term || !str)
         return;
-
+    // Suppress global flush for the duration of this write
+    bool __prev_suppress = false;
+    if (term->framebuffer) {
+        __prev_suppress = term->framebuffer->suppress_draw;
+        term->framebuffer->suppress_draw = true;
+    }
     while (*str)
     {
         gfxterm_putChar(term, *str++);
+    }
+    // Restore suppression state
+    if (term->framebuffer) {
+        term->framebuffer->suppress_draw = __prev_suppress;
     }
 }
 
@@ -666,12 +701,24 @@ void gfxterm_printf(GFXTerminal *term, const char *format, ...)
     va_list args;
     va_start(args, format);
 
+    // Suppress global flush during formatted print
+    bool __prev_suppress = false;
+    if (term->framebuffer) {
+        __prev_suppress = term->framebuffer->suppress_draw;
+        term->framebuffer->suppress_draw = true;
+    }
+
     gfxterm_printf_terminal = term;
 
     vprintf(gfxterm_printf_putChar, format, args);
 
     va_end(args);
     gfxterm_printf_terminal = NULL;
+
+    // Restore suppression state
+    if (term->framebuffer) {
+        term->framebuffer->suppress_draw = __prev_suppress;
+    }
 }
 
 void gfxterm_enable_cursor(GFXTerminal *term, bool enable)
@@ -714,6 +761,12 @@ static void __os_print(const char* s) { __os_puts(s); }
 static void __os_printf(const char* fmt, ...) {
     if (!__os_term) return;
     va_list args; va_start(args, fmt);
+    // Suppress global flush across the whole formatted print
+    bool __prev_suppress = false;
+    if (__os_term->framebuffer) {
+        __prev_suppress = __os_term->framebuffer->suppress_draw;
+        __os_term->framebuffer->suppress_draw = true;
+    }
     // Reuse printf path
     GFXTerminal* prev = gfxterm_printf_terminal;
     while (gfxterm_printf_terminal) {}
@@ -721,6 +774,9 @@ static void __os_printf(const char* fmt, ...) {
     vprintf(gfxterm_printf_putChar, fmt, args);
     va_end(args);
     gfxterm_printf_terminal = prev;
+    if (__os_term->framebuffer) {
+        __os_term->framebuffer->suppress_draw = __prev_suppress;
+    }
 }
 
 static OutputStream __gfxterm_stream = {
@@ -762,6 +818,13 @@ void gfxterm_clear(GFXTerminal *term)
     if (!term)
         return;
 
+    // Suppress global flush while clearing terminal
+    bool __prev_suppress = false;
+    if (term->framebuffer) {
+        __prev_suppress = term->framebuffer->suppress_draw;
+        term->framebuffer->suppress_draw = true;
+    }
+
     // Clear text grid
     if (term->buffer && term->bufferCapacity) {
         memset(term->buffer, ' ', term->bufferCapacity);
@@ -792,12 +855,24 @@ void gfxterm_clear(GFXTerminal *term)
     term->drawLineIndex = 0;
 
     term->dirty = true;
+
+    // Restore suppression state
+    if (term->framebuffer) {
+        term->framebuffer->suppress_draw = __prev_suppress;
+    }
 }
 
 void gfxterm_resize(GFXTerminal *term, gfx_size newSizeInChars)
 {
     if (!term)
         return;
+
+    // Suppress global flush during resize to avoid mid-frame artifacts
+    bool __prev_suppress = false;
+    if (term->framebuffer) {
+        __prev_suppress = term->framebuffer->suppress_draw;
+        term->framebuffer->suppress_draw = true;
+    }
 
     if (!term->font)
     {
@@ -861,6 +936,10 @@ void gfxterm_resize(GFXTerminal *term, gfx_size newSizeInChars)
     {
         WARN("Failed to create framebuffer for GFXTerminal");
         term->terminalSize = (gfx_size){0, 0};
+        // Restore suppression state before returning
+        if (term->framebuffer) {
+            term->framebuffer->suppress_draw = __prev_suppress;
+        }
         return;
     }
 
@@ -877,6 +956,10 @@ void gfxterm_resize(GFXTerminal *term, gfx_size newSizeInChars)
     {
         WARN("Failed to allocate terminal text buffer");
         term->bufferCapacity = 0;
+        // Restore suppression state before returning
+        if (term->framebuffer) {
+            term->framebuffer->suppress_draw = __prev_suppress;
+        }
         return;
     }
 
@@ -1012,6 +1095,11 @@ void gfxterm_resize(GFXTerminal *term, gfx_size newSizeInChars)
     __scrollback_free_external(old_blocks, old_blocks_count);
 
     term->dirty = true;
+
+    // Restore suppression state
+    if (term->framebuffer) {
+        term->framebuffer->suppress_draw = __prev_suppress;
+    }
 }
 
 void gfxterm_redraw(GFXTerminal *term)

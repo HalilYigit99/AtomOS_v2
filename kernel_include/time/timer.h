@@ -42,6 +42,8 @@ extern HardwareTimer* hpet_timer; // Pointer to the HPET timer
 extern HardwareTimer* apic_timers[]; // Array of APIC timers
 extern size_t apic_timer_count; // Count of APIC timers
 
+extern uint64_t uptimeMs; // System uptime in milliseconds
+
 #ifdef __cplusplus
 }
 #endif
