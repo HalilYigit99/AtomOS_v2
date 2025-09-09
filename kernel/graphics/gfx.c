@@ -7,8 +7,14 @@
 #include <mouse/mouse.h>
 #include <debug/debug.h>
 
-static volatile size_t screen_width;
-static volatile size_t screen_height;
+/*
+
+    TODO: gfx bufferi her seferinde iki katına çıkarmak yerine ihtiyaç kadar büyüt.
+
+*/
+
+size_t screen_width;
+size_t screen_height;
 
 size_t gfx_videoModeCount;
 
@@ -26,7 +32,7 @@ void gfx_draw_task();
 void gfx_screen_register_buffer(gfx_buffer *buffer)
 {
     gfx_buffers_busy = true;
-    List_Add(gfx_buffers, buffer);
+    List_InsertAt(gfx_buffers, 0, buffer);
     gfx_buffers_busy = false;
 }
 
@@ -79,7 +85,7 @@ void gfx_init()
     gfx_screen_register_buffer(screen_buffer);
 }
 
-gfx_buffer *gfx_create_buffer(size_t width, size_t height)
+gfx_buffer* gfx_create_buffer(size_t width, size_t height)
 {
     if (!gfx_buffers)
     {
@@ -453,7 +459,7 @@ extern void __mouse_draw();
 
 static void gfx_draw_bpp32()
 {
-    gfx_buffer *buffer = (gfx_buffer *)List_GetAt(gfx_buffers, List_Size(gfx_buffers) - 1);
+    gfx_buffer *buffer = (gfx_buffer *)List_GetAt(gfx_buffers, 0);
     if (!buffer)
         return; // No buffer to draw
 
@@ -463,31 +469,39 @@ static void gfx_draw_bpp32()
         return;
     }
 
-    if (buffer->size.width == hardware_buffer->size.width &&
-        buffer->size.height == hardware_buffer->size.height &&
-        buffer->bpp == hardware_buffer->bpp)
-    {
-        // If the buffer size and bpp match, we can copy directly
-        memcpy((void *)hardware_buffer->buffer, (void *)buffer->buffer, buffer->size.width * buffer->size.height * sizeof(uint32_t));
-    }
-    else
-    {
-        size_t width = buffer->size.width < screen_width ? buffer->size.width : screen_width;
-        size_t height = buffer->size.height < screen_height ? buffer->size.height : screen_height;
+    size_t copy_width = (buffer->size.width < hardware_buffer->size.width) ? buffer->size.width : hardware_buffer->size.width;
+    size_t copy_height = (buffer->size.height < hardware_buffer->size.height) ? buffer->size.height : hardware_buffer->size.height;
 
-        for (size_t y = 0; y < height; y++)
-        {
-            memcpy(
-                (void *)((size_t)hardware_buffer->buffer + (y * hardware_buffer->size.width * sizeof(uint32_t))),
-                (void *)((size_t)buffer->buffer + (y * buffer->size.width * sizeof(uint32_t))),
-                width * sizeof(uint32_t));
-        }
+    // Fast path: exact match and no vertical offset
+    if (buffer->bpp == hardware_buffer->bpp &&
+        buffer->size.width == hardware_buffer->size.width &&
+        buffer->size.height == hardware_buffer->size.height &&
+        buffer->drawBeginLineIndex == 0)
+    {
+        memcpy((void *)hardware_buffer->buffer, (void *)buffer->buffer,
+               buffer->size.width * buffer->size.height * sizeof(uint32_t));
+        return;
+    }
+
+    // General path: copy line by line honoring drawBeginLineIndex (with wrap)
+    const size_t bytes_per_pixel = sizeof(uint32_t);
+    const size_t dst_pitch = hardware_buffer->size.width * bytes_per_pixel;
+    const size_t src_pitch = buffer->size.width * bytes_per_pixel;
+
+    for (size_t y = 0; y < copy_height; y++)
+    {
+        size_t src_y = buffer->drawBeginLineIndex + y;
+        if (src_y >= buffer->size.height) src_y %= buffer->size.height; // wrap safely
+
+        void* dst = (void*)((size_t)hardware_buffer->buffer + y * dst_pitch);
+        void* src = (void*)((size_t)buffer->buffer + src_y * src_pitch);
+        memcpy(dst, src, copy_width * bytes_per_pixel);
     }
 }
 
 static void gfx_draw_bpp24()
 {
-    gfx_buffer *buffer = (gfx_buffer *)List_GetAt(gfx_buffers, List_Size(gfx_buffers) - 1);
+    gfx_buffer *buffer = (gfx_buffer *)List_GetAt(gfx_buffers, 0);
 
     if (!buffer)
         return; // No buffer to draw
@@ -497,17 +511,20 @@ static void gfx_draw_bpp24()
         ERROR("Buffer size is zero, cannot draw");
         return;
     }
-    
-    size_t width = buffer->size.width < screen_width ? buffer->size.width : screen_width;
-    size_t height = buffer->size.height < screen_height ? buffer->size.height : screen_height;
 
-    for (size_t y = 0; y < height; y++)
+    size_t copy_width = (buffer->size.width < hardware_buffer->size.width) ? buffer->size.width : hardware_buffer->size.width;
+    size_t copy_height = (buffer->size.height < hardware_buffer->size.height) ? buffer->size.height : hardware_buffer->size.height;
+
+    for (size_t y = 0; y < copy_height; y++)
     {
-        for (size_t x = 0; x < width; x++)
-        {
-            gfx_color pixel = ((gfx_color *)buffer->buffer)[y * buffer->size.width + x];
-            size_t fb_index = (y * hardware_buffer->size.width + x) * 3; // 3 bytes per pixel for 24bpp
+        size_t src_y = buffer->drawBeginLineIndex + y;
+        if (src_y >= buffer->size.height) src_y %= buffer->size.height; // wrap safely
 
+        for (size_t x = 0; x < copy_width; x++)
+        {
+            gfx_color pixel = ((gfx_color *)buffer->buffer)[src_y * buffer->size.width + x];
+
+            size_t fb_index = (y * hardware_buffer->size.width + x) * 3; // 3 bytes per pixel for 24bpp
             ((uint8_t *)hardware_buffer->buffer)[fb_index + 0] = pixel.b; // Blue
             ((uint8_t *)hardware_buffer->buffer)[fb_index + 1] = pixel.g; // Green
             ((uint8_t *)hardware_buffer->buffer)[fb_index + 2] = pixel.r; // Red
@@ -552,4 +569,29 @@ void gfx_draw_task()
     __mouse_draw();
 }
 
+bool gfx_resize_buffer(gfx_buffer* buffer, size_t newWidth, size_t newHeight)
+{
+    if (!buffer) return false;
+    if (newWidth == 0 || newHeight == 0) return false;
 
+    void* newBuffer = malloc(newWidth * newHeight * (buffer->bpp / 8));
+    if (!newBuffer) return false;
+
+    // Copy old content to new buffer
+    size_t copyWidth = (newWidth < buffer->size.width) ? newWidth : buffer->size.width;
+    size_t copyHeight = (newHeight < buffer->size.height) ? newHeight : buffer->size.height;
+
+    for (size_t y = 0; y < copyHeight; y++) {
+        memcpy((uint8_t*)newBuffer + y * newWidth * (buffer->bpp / 8),
+               (uint8_t*)buffer->buffer + y * buffer->size.width * (buffer->bpp / 8),
+               copyWidth * (buffer->bpp / 8));
+    }
+
+    free(buffer->buffer);
+    buffer->buffer = newBuffer;
+    buffer->size.width = newWidth;
+    buffer->size.height = newHeight;
+    buffer->isDirty = true;
+
+    return true;
+}
