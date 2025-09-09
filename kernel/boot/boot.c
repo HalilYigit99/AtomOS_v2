@@ -9,6 +9,8 @@
 #include <mouse/mouse.h>
 #include <driver/apic/apic.h>
 #include <memory/pmm.h>
+#include <time/timer.h>
+#include <stream/OutputStream.h>
 
 extern DriverBase pic8259_driver;
 extern DriverBase ps2kbd_driver;
@@ -20,6 +22,14 @@ extern DriverBase ata_driver;
 
 extern uint32_t mb2_signature;
 extern uint32_t mb2_tagptr;
+
+extern DebugStream genericDebugStream;
+extern DebugStream dbgGFXTerm;
+extern DebugStream uartDebugStream;
+
+extern OutputStream dbgGFXTermStream;
+extern OutputStream genericOutputStream;
+extern OutputStream uartOutputStream;
 
 extern void multiboot2_parse();
 extern void pmm_init();
@@ -36,7 +46,9 @@ extern bool apic_supported();
 
 extern void i386_processor_exceptions_init();
 extern void i386_tss_install(void);
-extern void print_memory_regions();;
+extern void print_memory_regions();
+
+extern void gfx_draw_task();
 
 void __boot_kernel_start(void)
 {
@@ -93,6 +105,28 @@ void __boot_kernel_start(void)
     system_driver_register(&pit_driver);
     system_driver_enable(&pit_driver);
 
+    gfx_init();
+
+    if (pit_timer)
+    {
+        pit_timer->setFrequency(10); // 10 Hz
+        pit_timer->add_callback(gfx_draw_task); // Add the gfx redraw task to the PIT timer callbacks
+    }
+
+    currentOutputStream = &genericOutputStream;
+
+    gos_addStream(&uartOutputStream);
+    gos_addStream(&dbgGFXTermStream);
+
+    currentOutputStream->Open();
+
+    debugStream = &genericDebugStream;
+
+    gds_addStream(&dbgGFXTerm);
+    gds_addStream(&uartDebugStream);
+
+    debugStream->Open();
+
     // Enable HID drivers
     LOG("Loading HID drivers...");
 
@@ -109,7 +143,5 @@ void __boot_kernel_start(void)
 
     system_driver_register(&ata_driver);
     system_driver_enable(&ata_driver);
-
-    gfx_init();
 
 }

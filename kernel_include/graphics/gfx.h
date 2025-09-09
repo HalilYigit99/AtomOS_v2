@@ -6,7 +6,12 @@ extern "C" {
 
 #include <graphics/types.h>
 
-gfx_buffer* gfx_create_buffer();
+extern size_t screen_width;
+extern size_t screen_height;
+extern size_t gfx_videoModeCount;
+extern uint8_t screen_bpp;
+
+gfx_buffer* gfx_create_buffer(size_t width, size_t height);
 void gfx_destroy_buffer(gfx_buffer* buffer);
 
 void gfx_screen_register_buffer(gfx_buffer* buffer);
@@ -29,8 +34,9 @@ void gfx_fill_triangle(gfx_buffer* buffer, int x1, int y1, int x2, int y2, int x
 void gfx_draw_char(gfx_buffer* buffer, int x, int y, char c, gfx_color color, gfx_font* font);
 void gfx_draw_text(gfx_buffer* buffer, int x, int y, char* text, gfx_color color, gfx_font* font);
 
-
 void gfx_draw_bitmap(gfx_buffer* buffer, int x, int y, void* bitmap, size_t width, size_t height);
+
+bool gfx_resize_buffer(gfx_buffer* buffer, size_t newWidth, size_t newHeight);
 
 gfx_videomode* get_video_mode(size_t index);
 

@@ -239,14 +239,16 @@ __udivdi3:
 	mov [esp+8], ebx
 	mov ebx, [esp+12+4]     ; n_hi
 	mov [esp+12], ebx
-	xor eax, eax            ; rem_low
-	xor edx, edx            ; rem_high
-	xor edi, edi            ; quotient (32-bit)
-	mov ecx, 64
+    xor eax, eax            ; rem_low
+    xor edx, edx            ; rem_high
+    xor edi, edi            ; quotient low 32
+    xor esi, esi            ; quotient high 32
+    mov ecx, 64
 .u64_loop:
-	shl edi,1               ; quotient <<=1
-	shl eax,1               ; remainder <<=1
-	rcl edx,1
+    shld esi, edi, 1        ; (esi:edi) <<= 1
+    shl edi,1
+    shl eax,1               ; remainder <<=1
+    rcl edx,1
 	; numerator <<=1, CF=bit çıkıyor
 	mov ebx, [esp+8]
 	shl ebx,1
@@ -264,18 +266,18 @@ __udivdi3:
 	cmp ebx, [esp+0]
 	jb .no_sub
 .do_sub:
-	sub eax, [esp+0]
-	sbb edx, [esp+4]
-	inc edi
+    sub eax, [esp+0]
+    sbb edx, [esp+4]
+    or edi, 1               ; set lowest bit of quotient
 .no_sub:
-	dec ecx
-	jnz .u64_loop
-	; sonucu döndür
-	mov eax, edi
-	xor edx, edx
-	add esp,16
-	pop edi
-	pop esi
+    dec ecx
+    jnz .u64_loop
+    ; sonucu döndür
+    mov eax, edi            ; low 32
+    mov edx, esi            ; high 32
+    add esp,16
+    pop edi
+    pop esi
 	pop ebx
 	pop ebp
 	ret
@@ -536,31 +538,90 @@ __divmoddi4:
 	push ebx
 	push esi
 	push edi
-	; rem_ptr = [esp + 16 + 4] after pushes (ret + 3 pushes + original args)
-	mov edi, [esp+16+4]
-	; Prepare and call __divdi3(a,b)
-	push dword [esp+12+4]    ; b_hi
-	push dword [esp+12+4]    ; b_lo
-	push dword [esp+12+4]    ; a_hi
-	push dword [esp+12+4]    ; a_lo
+	push ebp
+	; Load args into registers
+	mov ebx, [esp+20]      ; a_lo
+	mov ecx, [esp+24]      ; a_hi
+	mov esi, [esp+28]      ; b_lo
+	mov ebp, [esp+32]      ; b_hi
+	mov edi, [esp+36]      ; rem_ptr
+	; q = __divdi3(a,b)
+	push ebp
+	push esi
+	push ecx
+	push ebx
 	call __divdi3
 	add esp,16
-	; Save quotient in (esi:ebx)
-	mov esi, eax
-	mov ebx, edx
-	; Prepare and call __moddi3(a,b)
-	push dword [esp+12+4]    ; b_hi
-	push dword [esp+12+4]    ; b_lo
-	push dword [esp+12+4]    ; a_hi
-	push dword [esp+12+4]    ; a_lo
+	; save quotient across next call
+	push edx               ; save q_hi
+	push eax               ; save q_lo
+	; r = __moddi3(a,b)
+	push ebp
+	push esi
+	push ecx
+	push ebx
 	call __moddi3
 	add esp,16
-	; Store remainder
+	; store remainder
+	test edi, edi
+	jz .dmd4_skip_store
 	mov [edi], eax
 	mov [edi+4], edx
-	; Restore quotient
-	mov eax, esi
-	mov edx, ebx
+.dmd4_skip_store:
+	; restore quotient to return regs
+	pop eax                ; q_lo
+	pop edx                ; q_hi
+	pop ebp
+	pop edi
+	pop esi
+	pop ebx
+	ret
+
+; ---------------------------------------------------------------------------
+; Kombine bölüm+kalan: (unsigned) __udivmoddi4(uint64_t a, uint64_t b, uint64_t *rem)
+; Dönüş: quotient (EDX:EAX), *rem = remainder (opsiyonel pointer)
+; Arg layout (cdecl): a_lo,a_hi,b_lo,b_hi, rem_ptr
+; ---------------------------------------------------------------------------
+global __udivmoddi4
+__udivmoddi4:
+	; Stack on entry: ret, a_lo, a_hi, b_lo, b_hi, rem_ptr
+	push ebx
+	push esi
+	push edi
+	push ebp
+	; Load args
+	mov ebx, [esp+20]      ; a_lo
+	mov ecx, [esp+24]      ; a_hi
+	mov esi, [esp+28]      ; b_lo
+	mov ebp, [esp+32]      ; b_hi
+	mov edi, [esp+36]      ; rem_ptr
+	; q = __udivdi3(a,b)
+	push ebp
+	push esi
+	push ecx
+	push ebx
+	call __udivdi3
+	add esp,16
+	; save quotient across next call
+	push edx               ; q_hi
+	push eax               ; q_lo
+	; r = __umoddi3(a,b)
+	push ebp
+	push esi
+	push ecx
+	push ebx
+	call __umoddi3
+	add esp,16
+	; store remainder if requested
+	test edi, edi
+	jz .umd4_skip_store
+	mov [edi], eax
+	mov [edi+4], edx
+.umd4_skip_store:
+	; restore quotient to return regs
+	pop eax                ; q_lo
+	pop edx                ; q_hi
+	pop ebp
 	pop edi
 	pop esi
 	pop ebx
@@ -569,4 +630,3 @@ __divmoddi4:
 ; ---------------------------------------------------------------------------
 ; NOT: Bölme / mod yavaş (bit döngülü) fakat doğruluk önceliklidir. Gerekirse
 ; ileride normalizasyonlu (Knuth) daha hızlı algoritma eklenebilir.
-

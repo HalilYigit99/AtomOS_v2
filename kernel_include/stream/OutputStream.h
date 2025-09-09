@@ -19,6 +19,8 @@ typedef struct {
 
 extern OutputStream* currentOutputStream;
 
+void gos_addStream(OutputStream* stream);
+
 #ifdef __cplusplus
 }
 #endif

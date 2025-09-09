@@ -261,3 +261,86 @@ void acpi_poweroff() {
 
 }
 
+void acpi_restart()
+{
+    // Önce ACPI 2.0+ FADT ResetReg varsa onu kullan, sonra chipset reset portu (0xCF9),
+    // en sonda 8042 klavye denetleyicisi ile reset dene.
+
+    asm volatile ("cli");
+
+    const acpi_fadt_unified* fadt = (const acpi_fadt_unified*)acpi_get_fadt();
+    if (fadt) {
+        const acpi_gas* rr = &fadt->ResetReg;
+        if (rr->Address != 0 && fadt->ResetValue != 0) {
+            LOG("ACPI: Trying ResetReg (ASID=%u, Width=%u, AccessSize=%u, Addr=0x%llx, Val=0x%02x)",
+                rr->AddressSpaceId, rr->RegisterBitWidth, rr->AccessSize,
+                (unsigned long long)rr->Address, fadt->ResetValue);
+
+            uint8_t val = fadt->ResetValue;
+
+            // Erişim boyutunu belirle (AccessSize > 0 ise onu kullan, yoksa bit genişliğinden türet)
+            uint8_t access_size = rr->AccessSize;
+            if (access_size == 0) {
+                if (rr->RegisterBitWidth <= 8) access_size = 1;
+                else if (rr->RegisterBitWidth <= 16) access_size = 2;
+                else if (rr->RegisterBitWidth <= 32) access_size = 3;
+                else access_size = 4; // 64-bit
+            }
+
+            switch (rr->AddressSpaceId) {
+                case 1: { // System I/O
+                    uint16_t port = (uint16_t)rr->Address;
+                    // Pek çok platform 8-bit yazımı bekler; daha genişlikler için en azından uyumlu yazalım
+                    if (access_size == 1) {
+                        outb(port, val);
+                    } else if (access_size == 2) {
+                        outw(port, (uint16_t)val);
+                    } else {
+                        outl(port, (uint32_t)val);
+                    }
+                    // Başarılıysa sistem resetlenmeli; kısa bir bekleme
+                    for (int i = 0; i < 1000000; ++i) io_wait();
+                    break;
+                }
+                case 0: { // System Memory (MMIO)
+                    volatile void* p = (volatile void*)(uintptr_t)rr->Address;
+                    if (access_size == 1) {
+                        *(volatile uint8_t*)p = val;
+                    } else if (access_size == 2) {
+                        *(volatile uint16_t*)p = (uint16_t)val;
+                    } else if (access_size == 3) {
+                        *(volatile uint32_t*)p = (uint32_t)val;
+                    } else {
+                        *(volatile uint64_t*)p = (uint64_t)val;
+                    }
+                    for (int i = 0; i < 1000000; ++i) io_wait();
+                    break;
+                }
+                default:
+                    WARN("ACPI: Unsupported ResetReg AddressSpaceId=%u", rr->AddressSpaceId);
+                    break;
+            }
+        }
+    }
+
+    // Yonga seti reset portu: 0xCF9 (Reset Control).
+    // Yaygın sıralama: önce 0x02 (CPU reset bit), ardından 0x06 (SYS_RST | RST_CPU).
+    LOG("ACPI: Falling back to chipset reset via 0xCF9");
+    outb(0xCF9, 0x02);
+    io_wait();
+    outb(0xCF9, 0x06);
+    for (int i = 0; i < 1000000; ++i) io_wait();
+
+    // 8042 klavye denetleyici reseti: komut 0xFE
+    LOG("ACPI: Falling back to 8042 keyboard controller reset");
+    // Giriş tamponu boşalana kadar bekle (bit1 = IBF)
+    for (int i = 0; i < 1000000; ++i) {
+        if ((inb(0x64) & 0x02) == 0) break;
+        io_wait();
+    }
+    outb(0x64, 0xFE);
+
+    // Eğer hiçbir yöntem çalışmazsa CPU'yu durdur
+    ERROR("System restart did not occur; halting");
+    while (1) asm volatile ("hlt");
+}

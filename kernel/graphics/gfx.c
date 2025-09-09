@@ -114,6 +114,7 @@ gfx_buffer* gfx_create_buffer(size_t width, size_t height)
 
     buffer->bpp = 32; // Assuming 32 bits per pixel
     buffer->drawBeginLineIndex = 0;
+    buffer->position = (gfx_point){0, 0};
 
     return buffer;
 }

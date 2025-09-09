@@ -164,7 +164,7 @@ void* heap_alloc(size_t n) {
 
         void* newRegionPtr = pmm_alloc(regionSize / 1024); // PMM'den KB cinsinden al
         if (!newRegionPtr) {
-            ERROR("heap_alloc: pmm_alloc failed to allocate new heap region of size %zu bytes", regionSize);
+            ERROR("heap_alloc: pmm_alloc failed to allocate new heap region of size %zu bytes ( %zu kb, %zu mb )", regionSize, regionSize / 1024, regionSize / (1024 * 1024));
             return NULL;
         }
 
@@ -193,6 +193,8 @@ void* heap_alloc(size_t n) {
             ERROR("heap_alloc: alloc_region failed after expanding heap");
             return NULL;
         }
+
+        LOG("Heap expanded by %zu bytes", regionSize);
 
         return _Ret;
 

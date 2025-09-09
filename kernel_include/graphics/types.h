@@ -51,7 +51,7 @@ typedef struct {
     gfx_size size;
     void* buffer; // Pointer to the pixel buffer
     uint32_t bpp; // Bits per pixel
-    uint8_t drawBeginLineIndex; // Index of the first line to draw
+    size_t drawBeginLineIndex; // Index of the first line to draw
     bool isDirty; // If true, the buffer needs to be redrawn
     gfx_point position; // Position of the buffer on the screen
 } gfx_buffer;

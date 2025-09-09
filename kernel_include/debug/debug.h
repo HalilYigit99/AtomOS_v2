@@ -44,6 +44,8 @@ extern DebugStream* debugStream;
         debugStream->printf("[%s:%d] [ERROR] " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__); \
     } while (0)
 
+void gds_addStream(DebugStream* stream);
+
 #ifdef __cplusplus
 }
 #endif

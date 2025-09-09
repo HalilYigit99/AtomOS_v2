@@ -229,9 +229,12 @@ char *strnstr(const char *haystack, const char *needle, size_t len) {
 
 // String duplicate (heap gerektirir - basit implementasyon)
 char *strdup(const char *str) {
-    // Not implemented - heap allocation gerektirir
-    // OS geliştikçe heap ile birlikte implement edilebilir
-    return NULL; // Geçici olarak NULL döndürüyoruz
+    size_t len = strlen(str);
+
+    char* newBuffer = malloc(len + 1);
+    memcpy(newBuffer, str, len + 1);
+
+    return newBuffer;
 }
 
 // String tokenize (basit implementasyon)

@@ -486,6 +486,14 @@ void pmm_free(void *ptr)
 
     size_t addr = (size_t)(uintptr_t)ptr;
 
+    if (addr % 4096 != 0)
+    {
+        // Align down to page size
+        LOG("pmm_free: address is not page-aligned: 0x%lX", (unsigned long)addr);
+        addr = addr & ~(4096 - 1);
+        LOG("pmm_free: aligned address: 0x%lX", (unsigned long)addr);
+    }
+
     // Ilgili bolgeyi bul
     ListNode *node = memory_regions->head;
     MemoryRegion *freed = NULL;
