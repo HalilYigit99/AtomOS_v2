@@ -117,6 +117,8 @@ void __boot_kernel_start(void)
         system_driver_enable(&pic8259_driver);
     }
 
+    asm volatile ("sti"); // Enable interrupts
+
     // PIT (system tick)
     system_driver_register(&pit_driver);
     system_driver_enable(&pit_driver);
@@ -165,8 +167,6 @@ void __boot_kernel_start(void)
 
     LOG("Keyboard and mouse driver test!");
     LOG("Press any key to continue...");
-
-    asm volatile ("sti"); // Enable interrupts
 
     while (keyboardInputStream.available() > 0)
         keyboardInputStream.readChar(&foo); // Clear keyboard buffer

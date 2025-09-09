@@ -134,6 +134,57 @@ void pmm_init(void)
         }
     }
 
+    // Video framebuffer reserve et
+
+    if (mb2_framebuffer)
+    {
+        void* addr = (void*)(uintptr_t)mb2_framebuffer->framebuffer_addr;
+        size_t size = mb2_framebuffer->framebuffer_pitch * mb2_framebuffer->framebuffer_height;
+        if (size % 4096 != 0)
+            size = (size / 4096 + 1) * 4096; // Sayfa hizala
+
+        // Framebuffer bölgesini listeye ekle
+        // Adım 1: Framebuffer bölgesini kapsayan tüm bölgeleri bul ve gerekirse böl
+        size_t fb_start = (size_t)addr;
+        size_t fb_end = fb_start + size;
+
+        for (ListNode* node = memory_regions->head; node != NULL; node = node->next) {
+            MemoryRegion* region = (MemoryRegion*)node->data;
+            size_t region_end = region->base + region->size;
+
+            if (region->base < fb_end && region_end > fb_start) {
+                // Kesişim var
+                if (region->base < fb_start && region_end > fb_end) {
+                    // Bölge framebuffer'ın ortasından geçiyor, böl
+                    region->size = fb_start - region->base; // İlk kısmı kısalt
+                    // Yeni bir bölge oluştur ve kalan kısmı ekle
+                    MemoryRegion* newRegion = (MemoryRegion*)malloc(sizeof(MemoryRegion));
+                    newRegion->base = fb_end;
+                    newRegion->size = region_end - fb_end;
+                    newRegion->type = region->type; // Orijinal türü koru
+                    List_InsertAt(memory_regions, List_IndexOf(memory_regions, region) + 1, newRegion);
+                    // Şimdi mevcut bölge framebuffer ile tam olarak kesişiyor
+                    MemoryRegion* fbRegion = (MemoryRegion*)malloc(sizeof(MemoryRegion));
+                    fbRegion->base = fb_start;
+                    fbRegion->size = size;
+                    fbRegion->type = MemoryRegionType_RESERVED;
+                    List_InsertAt(memory_regions, List_IndexOf(memory_regions, region) + 1, fbRegion);
+                } else if (region->base < fb_start && region_end <= fb_end) {
+                    // Bölge framebuffer'ın başlangıcını kapsıyor, sonunu kısalt
+                    region->size = fb_start - region->base;
+                } else if (region->base >= fb_start && region_end > fb_end) {
+                    // Bölge framebuffer'ın sonunu kapsıyor, başlangıcını kısalt
+                    size_t overlap = region_end - fb_end;
+                    region->base = fb_end;
+                    region->size = overlap;
+                } else {
+                    // Bölge tamamen framebuffer içinde, türünü RESERVED yap
+                    region->type = MemoryRegionType_RESERVED;
+                }
+            }
+        }
+    }
+
 }
 
 void bios_mr_init(void)

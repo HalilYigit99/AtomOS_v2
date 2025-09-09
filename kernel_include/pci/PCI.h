@@ -121,6 +121,7 @@ void PCI_ConfigWrite16(uint8_t bus, uint8_t dev, uint8_t func, uint8_t offset, u
 void PCI_ConfigWrite8 (uint8_t bus, uint8_t dev, uint8_t func, uint8_t offset, uint8_t  value);
 
 char* PCI_GetClassName(PCIDeviceClass class);
+char* PCI_GetSubClassName(uint8_t classCode, uint8_t subclass);
 
 #ifdef __cplusplus
 }

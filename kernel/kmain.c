@@ -19,7 +19,7 @@ extern void acpi_restart();  // ACPI restart function
 
 extern unsigned char logo_128x128_bmp[];
 extern unsigned int logo_128x128_bmp_len;
-
+extern void print_memory_regions(void);
 extern GFXTerminal* debug_terminal;
 
 extern void efi_reset_to_firmware();
@@ -33,6 +33,20 @@ void kmain()
     void* test = malloc(16 * 1024 * 1024);
     if (test) free(test);
     else LOG("Heap expand failed!");
+
+    // Print PCI devices
+    LOG("Scanning PCI bus...");
+    PCI_Rescan(true);
+    
+    List* pciDevices = PCI_GetDeviceList();
+
+    for (ListNode* node = pciDevices->head; node != NULL; node = node->next) {
+        PCIDevice* dev = (PCIDevice*)node->data;
+        char* class = PCI_GetClassName(dev->classCode);
+        char* subclass = PCI_GetSubClassName(dev->classCode, dev->subclass);
+
+        LOG("PCI %02X:%02X.%X - %04X:%04X - %s / %s", dev->bus, dev->device, dev->function, dev->vendorID, dev->deviceID, class, subclass);
+    }
 
     while (1)
     {
@@ -67,6 +81,19 @@ void kmain()
             {
                 LOG("Restart requested via keyboard");
                 acpi_restart();
+            }else
+            if (c == 't')
+            {
+                LOG("Current uptime: %llu ms", uptimeMs);
+            }else
+            if (c == 'm')
+            {
+                mouse_enabled = !mouse_enabled;
+                LOG("Mouse %s", mouse_enabled ? "enabled" : "disabled");
+            }else
+            if (c == 'n')
+            {
+                print_memory_regions();
             }
         }
     }

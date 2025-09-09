@@ -278,6 +278,9 @@ void gfxterm_draw_task()
     }
 }
 
+// PeriodicTask adapter: call draw task on scheduler tick
+static void __gfxterm_periodic(void* task, void* arg) { (void)task; (void)arg; gfxterm_draw_task(); }
+
 bool ascii_printable(char c)
 {
     return c >= 32 && c <= 126;
@@ -399,7 +402,7 @@ GFXTerminal *gfxterm_create(const char *name)
 
     if (gfxRedrawTaskActive == false)
     {
-        gfxterm_task = periodic_task_create("GFXTerm Task", NULL, gfxterm_draw_task, 100); // ~10 FPS
+        gfxterm_task = periodic_task_create("GFXTerm Task", __gfxterm_periodic, NULL, 100); // ~10 FPS
         if (!gfxterm_task)
         {
             ERROR("Failed to create GFXTerm task");
@@ -647,14 +650,12 @@ void gfxterm_scroll(GFXTerminal *term, int lines)
         if (new_index > max_offset) new_index = max_offset;
         term->drawLineIndex = new_index;
         term->dirty = true;
-        return;
     } else if (lines > 0) {
         // Scroll down toward live tail
         size_t delta = (size_t)lines;
         if (term->drawLineIndex > delta) term->drawLineIndex -= delta;
         else term->drawLineIndex = 0;
         term->dirty = true;
-        return;
     }
 }
 
