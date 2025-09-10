@@ -5,6 +5,7 @@
 #include <efi/efi.h>
 #include <memory/memory.h>
 #include <list.h>
+#include <graphics/screen.h>
 
 List *memory_regions = NULL; // Bellek bölgelerinin başı
 
@@ -136,10 +137,10 @@ void pmm_init(void)
 
     // Video framebuffer reserve et
 
-    if (mb2_framebuffer)
+    if (main_screen.mode->framebuffer)
     {
-        void* addr = (void*)(uintptr_t)mb2_framebuffer->framebuffer_addr;
-        size_t size = mb2_framebuffer->framebuffer_pitch * mb2_framebuffer->framebuffer_height;
+        void* addr = (void*)(uintptr_t)main_screen.mode->framebuffer;
+        size_t size = main_screen.mode->pitch * main_screen.mode->height;
         if (size % 4096 != 0)
             size = (size / 4096 + 1) * 4096; // Sayfa hizala
 

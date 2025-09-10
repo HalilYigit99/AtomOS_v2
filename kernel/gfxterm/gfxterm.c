@@ -9,6 +9,7 @@
 #include <time/timer.h>
 #include <list.h>
 #include <task/PeriodicTask.h>
+#include <graphics/screen.h>
 
 // Scrollback ring buffer implementation (block-based, linear growth)
 // - Stores lines in fixed-size blocks to reduce realloc/memmove and fragmentation.
@@ -371,8 +372,8 @@ GFXTerminal *gfxterm_create(const char *name)
     __scrollback_init(term, 4096);
 
     gfx_size screenSizeInChars;
-    screenSizeInChars.width = screen_width / term->font->size.width;
-    screenSizeInChars.height = screen_height / term->font->size.height;
+    screenSizeInChars.width = main_screen.mode->width / term->font->size.width;
+    screenSizeInChars.height = main_screen.mode->height / term->font->size.height;
 
     gfxterm_resize(term, screenSizeInChars);
 
@@ -881,18 +882,18 @@ void gfxterm_resize(GFXTerminal *term, gfx_size newSizeInChars)
         term->font = &gfx_font8x16;
     }
 
-    size_t screenMaxWidthInChars = screen_width / term->font->size.width;
-    size_t screenMaxHeightInChars = screen_height / term->font->size.height;
+    size_t screenMaxWidthInChars = main_screen.mode->width / term->font->size.width;
+    size_t screenMaxHeightInChars = main_screen.mode->height / term->font->size.height;
 
     gfx_size sizeInPixels = {
         .width = newSizeInChars.width * term->font->size.width,
         .height = newSizeInChars.height * term->font->size.height};
 
-    if (sizeInPixels.width > screen_width || sizeInPixels.height > screen_height)
+    if (sizeInPixels.width > main_screen.mode->width || sizeInPixels.height > main_screen.mode->height)
     {
         WARN("Requested terminal size is too large, resizing to fit the screen");
-        sizeInPixels.width = screen_width;
-        sizeInPixels.height = screen_height;
+        sizeInPixels.width = main_screen.mode->width;
+        sizeInPixels.height = main_screen.mode->height;
 
         newSizeInChars.width = screenMaxWidthInChars;
         newSizeInChars.height = screenMaxHeightInChars;

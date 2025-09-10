@@ -1,6 +1,17 @@
 #include <driver/apic/apic.h>
 #include <debug/debug.h>
 
+/* APIC log kategorileri */
+#ifdef APIC_DEBUG
+#define APIC_LOG_G(...) LOG(__VA_ARGS__)
+#define APIC_LOG_D(...) LOG(__VA_ARGS__)
+#define APIC_DBG(expr)  do { expr; } while (0)
+#else
+#define APIC_LOG_G(...) LOG(__VA_ARGS__)
+#define APIC_LOG_D(...) do { if (0) LOG(__VA_ARGS__); } while (0)
+#define APIC_DBG(expr)  do { if (0) { expr; } } while (0)
+#endif
+
 typedef struct {
     volatile uint8_t* mmio;
     uint32_t gsi_base;
@@ -13,13 +24,13 @@ static uint32_t s_ioapic_count = 0;
 void ioapic_set_base(uintptr_t phys, uint32_t gsi_base)
 {
     if (s_ioapic_count >= 8) {
-        WARN("IOAPIC: too many controllers, ignoring %p", (void*)phys);
+    WARN("IOAPIC: too many controllers, ignoring %p", (void*)phys);
         return;
     }
     // Aynı fiziki tabanı iki kez eklemeyi önle
     for (uint32_t i = 0; i < s_ioapic_count; ++i) {
         if ((uintptr_t)s_ioapics[i].mmio == phys) {
-            LOG("IOAPIC: base %p already registered (index %u), skipping", (void*)phys, i);
+            APIC_LOG_D("IOAPIC: base %p already registered (index %u), skipping", (void*)phys, i);
             return;
         }
     }
@@ -31,7 +42,7 @@ void ioapic_set_base(uintptr_t phys, uint32_t gsi_base)
     *(volatile uint32_t*)(s_ioapics[s_ioapic_count].mmio + IOAPIC_MMIO_IOREGSEL) = IOAPIC_REG_VER;
     ver = *(volatile uint32_t*)(s_ioapics[s_ioapic_count].mmio + IOAPIC_MMIO_IOWIN);
     s_ioapics[s_ioapic_count].redirs = ((ver >> 16) & 0xFF) + 1;
-    LOG("IOAPIC[%u]: base=%p GSI base=%u entries=%u", s_ioapic_count, (void*)phys, gsi_base, s_ioapics[s_ioapic_count].redirs);
+    APIC_LOG_G("IOAPIC[%u]: base=%p GSI base=%u entries=%u", s_ioapic_count, (void*)phys, gsi_base, s_ioapics[s_ioapic_count].redirs);
     s_ioapic_count++;
 }
 
@@ -106,7 +117,7 @@ void ioapic_debug_dump_gsi(uint32_t gsi, const char* tag)
     bool level  = (e & IOAPIC_REDIR_LEVEL) != 0;
     bool low    = (e & IOAPIC_REDIR_ACTIVE_LOW) != 0;
     uint8_t dest = (uint8_t)(e >> 56);
-    LOG("IOAPIC: dump GSI%u [%s] -> vec=%u masked=%u level=%u low=%u destAPIC=%u raw=0x%016llx",
+    APIC_LOG_D("IOAPIC: dump GSI%u [%s] -> vec=%u masked=%u level=%u low=%u destAPIC=%u raw=0x%016llx",
         gsi, tag ? tag : "", vector, masked, level, low, dest, (unsigned long long)e);
 }
 
@@ -161,5 +172,5 @@ void ioapic_mask_all(void)
             }
         }
     }
-    LOG("IOAPIC: all redirection entries masked");
+    APIC_LOG_G("IOAPIC: all redirection entries masked");
 }

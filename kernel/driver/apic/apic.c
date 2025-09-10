@@ -5,6 +5,17 @@
 #include <arch.h>
 #include <debug/debug.h>
 
+/* APIC log kategorileri: Genel (G) ve Detay (D) */
+#ifdef APIC_DEBUG
+#define APIC_LOG_G(...) LOG(__VA_ARGS__)
+#define APIC_LOG_D(...) LOG(__VA_ARGS__)
+#define APIC_DBG(expr)  do { expr; } while (0)
+#else
+#define APIC_LOG_G(...) LOG(__VA_ARGS__)
+#define APIC_LOG_D(...) do { if (0) LOG(__VA_ARGS__); } while (0)
+#define APIC_DBG(expr)  do { if (0) { expr; } } while (0)
+#endif
+
 /* Basit tek IOAPIC ve tek LAPIC varsayımı ile minimal APIC sürücüsü */
 
 static uint32_t s_gsi_base = 0;      // IOAPIC'in GSI base'i (MADT'den)
@@ -36,7 +47,7 @@ static bool apic_madt_setup(void)
     uintptr_t lapic_base = madt->LocalApicAddress;
     lapic_set_base(lapic_base);
     s_lapic_id = lapic_get_id();
-    LOG("APIC: LAPIC id=%u base=%p", s_lapic_id, (void*)lapic_base);
+    APIC_LOG_G("APIC: LAPIC id=%u base=%p", s_lapic_id, (void*)lapic_base);
 
     /* MADT entryleri içinde IOAPIC ve (varsa) LAPIC address override ara */
     const uint8_t* p = madt->Entries;
@@ -63,7 +74,7 @@ static bool apic_madt_setup(void)
                     const struct { uint8_t Type, Length; uint8_t IoApicId; uint8_t Reserved; uint32_t Address; uint32_t GsiBase; } __attribute__((packed)) *e = (void*)p;
                     ioapic_base = e->Address;
                     ioapic_gsi_base = e->GsiBase;
-                    LOG("APIC: IOAPIC id=%u base=%p gsi_base=%u", e->IoApicId, (void*)(uintptr_t)e->Address, e->GsiBase);
+                    APIC_LOG_G("APIC: IOAPIC id=%u base=%p gsi_base=%u", e->IoApicId, (void*)(uintptr_t)e->Address, e->GsiBase);
                 }
                 break;
             }
@@ -71,7 +82,7 @@ static bool apic_madt_setup(void)
                 if (h->Length >= 12) {
                     const struct { uint8_t Type, Length; uint16_t Reserved; uint64_t Address; } __attribute__((packed)) *e = (void*)p;
                     lapic_set_base((uintptr_t)e->Address);
-                    LOG("APIC: LAPIC address override -> %p", (void*)(uintptr_t)e->Address);
+                    APIC_LOG_D("APIC: LAPIC address override -> %p", (void*)(uintptr_t)e->Address);
                 }
                 break;
             }
@@ -89,7 +100,7 @@ static bool apic_madt_setup(void)
                         if (pol == 3 /* active low */) f |= IOAPIC_REDIR_ACTIVE_LOW;
                         if (trg == 3 /* level */) f |= IOAPIC_REDIR_LEVEL;
                         s_irq_map[src].flags = f;
-                        LOG("APIC: ISO IRQ%u -> GSI %u (flags=0x%x)", src, e->Gsi, (unsigned)f);
+                        APIC_LOG_D("APIC: ISO IRQ%u -> GSI %u (flags=0x%x)", src, e->Gsi, (unsigned)f);
                     }
                 }
                 break;
@@ -116,7 +127,7 @@ static bool apic_madt_setup(void)
     // Not: IOAPIC GSI base, ISA IRQ numaralarıyla aynı olmak zorunda değil;
     // ISO varsa onu kullanırız, yoksa çoğu sistemde GSI==IRQ kabul edilebilir.
     for (uint32_t i = 0; i < 16; ++i) {
-        LOG("APIC: map IRQ%u -> GSI%u (flags=0x%x)", i, s_irq_map[i].gsi, (unsigned)s_irq_map[i].flags);
+    APIC_LOG_D("APIC: map IRQ%u -> GSI%u (flags=0x%x)", i, s_irq_map[i].gsi, (unsigned)s_irq_map[i].flags);
     }
 
     return true;
@@ -126,7 +137,7 @@ static bool apic_madt_setup(void)
 static inline void pic_mask_all(void) {
     outb(0x21, 0xFF);
     outb(0xA1, 0xFF);
-    LOG("APIC: PIC masked (pre)");
+    APIC_LOG_D("APIC: PIC masked (pre)");
 }
 
 static void lapic_sanitize_state(void)
@@ -145,7 +156,7 @@ static void lapic_sanitize_state(void)
     v = (v & ~0xFFu) | 0xFFu;
     lapic_write(LAPIC_REG_SVR, v);
     lapic_eoi();
-    LOG("APIC: LAPIC sanitized");
+    APIC_LOG_D("APIC: LAPIC sanitized");
 }
 static void apic_route_legacy_to_apic(void)
 {
@@ -165,12 +176,12 @@ static bool apic_program_legacy_irqs(void)
         // Aynı GSI'ye birden fazla IRQ denk geliyorsa (ör. ISO: IRQ0->GSI2, IRQ2 varsayılan GSI2),
         // ilk eşleyen IRQ'yu (küçük numaralıyı) tercih et ve diğerini atla.
         if (gsi < 256 && s_gsi_to_irq[gsi] != GSI_UNMAPPED && s_gsi_to_irq[gsi] != irq) {
-            LOG("APIC: GSI%u already mapped to IRQ%u, skipping IRQ%u", gsi, s_gsi_to_irq[gsi], irq);
+            APIC_LOG_D("APIC: GSI%u already mapped to IRQ%u, skipping IRQ%u", gsi, s_gsi_to_irq[gsi], irq);
             continue;
         }
 
         ioapic_set_redir(gsi, vector, s_lapic_id, flags, true /* start masked */);
-        LOG("APIC: route IRQ%u -> GSI%u vector=%u flags=0x%x", irq, gsi, vector, (unsigned)flags);
+        APIC_LOG_D("APIC: route IRQ%u -> GSI%u vector=%u flags=0x%x", irq, gsi, vector, (unsigned)flags);
         if (gsi < 256) s_gsi_to_irq[gsi] = irq;
         idt_reset_gate(vector); // default ISR; gerçek handler register_handler ile yazılır
     }
@@ -187,15 +198,15 @@ static void apic_irqc_enable(uint32_t irq)
 {
     /* Unmask corresponding GSI */
     if (irq < 24) ioapic_mask_gsi(s_irq_map[irq].gsi, false);
-    LOG("APIC: IRQ%u enabled", (size_t)irq);
-    if (irq < 24) ioapic_debug_dump_gsi(s_irq_map[irq].gsi, "after enable");
+    APIC_LOG_D("APIC: IRQ%u enabled", (size_t)irq);
+    if (irq < 24) APIC_DBG(ioapic_debug_dump_gsi(s_irq_map[irq].gsi, "after enable"));
 }
 
 static void apic_irqc_disable(uint32_t irq)
 {
     if (irq < 24) ioapic_mask_gsi(s_irq_map[irq].gsi, true);
-    LOG("APIC: IRQ%u disabled", (size_t)irq);
-    if (irq < 24) ioapic_debug_dump_gsi(s_irq_map[irq].gsi, "after disable");
+    APIC_LOG_D("APIC: IRQ%u disabled", (size_t)irq);
+    if (irq < 24) APIC_DBG(ioapic_debug_dump_gsi(s_irq_map[irq].gsi, "after disable"));
 }
 
 static void apic_irqc_ack(uint32_t irq)
@@ -224,7 +235,7 @@ static void apic_irqc_reg(uint32_t irq, void (*handler)(void))
 {
     if (!handler) return;
     uint8_t vector = 32 + (uint8_t)irq;
-    LOG("APIC: register handler IRQ%u -> vector %u @ %p", irq, vector, handler);
+    APIC_LOG_D("APIC: register handler IRQ%u -> vector %u @ %p", irq, vector, handler);
     idt_set_gate(vector, (size_t)(uintptr_t)handler);
 }
 
@@ -257,7 +268,7 @@ static void apic_irqc_reg_gsi(uint32_t gsi, void (*handler)(void)) {
     if (!handler) return;
     uint32_t irq = (gsi < 256 && s_gsi_to_irq[gsi] != GSI_UNMAPPED) ? s_gsi_to_irq[gsi] : gsi; // map back if known
     uint8_t vector = 32 + (uint8_t)irq;
-    LOG("APIC: register handler GSI%u -> IRQ%u vector %u @ %p", gsi, (unsigned)irq, vector, handler);
+    APIC_LOG_D("APIC: register handler GSI%u -> IRQ%u vector %u @ %p", gsi, (unsigned)irq, vector, handler);
     idt_set_gate(vector, (size_t)(uintptr_t)handler);
 }
 static void apic_irqc_unreg_gsi(uint32_t gsi) {
@@ -287,13 +298,13 @@ static bool apic_drv_init(void)
     // if firmware left the CPU in x2APIC mode. Using a stale 0 would break IOAPIC routing
     // on multi-core VMs by targeting a non-existent APIC ID.
     s_lapic_id = lapic_get_id();
-    LOG("APIC: Using LAPIC id=%u for IOAPIC routing", s_lapic_id);
+    APIC_LOG_G("APIC: Using LAPIC id=%u for IOAPIC routing", s_lapic_id);
     if (!apic_program_legacy_irqs()) return false;
     apic_route_legacy_to_apic();
     // PIC already masked; keep all GSIs masked until drivers enable
     s_apic_ready = true;
     irq_controller = &apic_irq_controller;
-    LOG("APIC: initialized (LAPIC id=%u, GSIs=%u from %u)", s_lapic_id, s_gsi_count, s_gsi_base);
+    APIC_LOG_G("APIC: initialized (LAPIC id=%u, GSIs=%u from %u)", s_lapic_id, s_gsi_count, s_gsi_base);
     // Do not unmask any line here
     return true;
 }

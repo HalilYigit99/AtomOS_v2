@@ -51,6 +51,8 @@ extern void print_memory_regions();
 
 extern void gfx_draw_task();
 
+extern void screen_init();
+
 PeriodicTask* gfx_task = NULL;
 
 void uptime_counter_task()
@@ -85,14 +87,16 @@ void __boot_kernel_start(void)
 
     pmm_init(); // Initialize physical memory manager
 
+    screen_init();
+
     /* ACPI tablolarını multiboot üzerinden başlat */
     acpi_init();
 
-    if (mb2_is_efi_boot)
-    {
-        LOG("Exiting boot services");
-        efi_exit_boot_services();
-    }
+    // if (mb2_is_efi_boot)
+    // {
+    //     LOG("Exiting boot services");
+    //     efi_exit_boot_services();
+    // }
 
     void *table = pmm_alloc(1); // Kernel için ilk sayfa tablosu
 
@@ -117,11 +121,13 @@ void __boot_kernel_start(void)
         system_driver_enable(&pic8259_driver);
     }
 
-    asm volatile ("sti"); // Enable interrupts
-
     // PIT (system tick)
     system_driver_register(&pit_driver);
     system_driver_enable(&pit_driver);
+
+    irq_controller->acknowledge(0); // Acknowledge IRQ0 (PIT)
+
+    asm volatile ("sti"); // Enable interrupts
 
     if (pit_timer)
     {
@@ -161,28 +167,7 @@ void __boot_kernel_start(void)
     system_driver_enable(&ps2kbd_driver);
     system_driver_enable(&ps2mouse_driver);
 
-    char foo;
-
     mouse_enabled = true;
-
-    LOG("Keyboard and mouse driver test!");
-    LOG("Press any key to continue...");
-
-    while (keyboardInputStream.available() > 0)
-        keyboardInputStream.readChar(&foo); // Clear keyboard buffer
-
-    while (1)
-    {
-        if (keyboardInputStream.available() > 0)
-        {
-            keyboardInputStream.readChar(&foo);
-            if (foo)
-            {
-                LOG("Continuing boot...");
-                break;
-            }
-        }
-    }
 
     // Storage drivers (AHCI first, then legacy ATA/PATA)
     LOG("Loading storage drivers...");

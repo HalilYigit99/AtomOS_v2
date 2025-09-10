@@ -43,7 +43,7 @@ bool pit_init() {
     pit_timer = &pit_timer_instance;
 
     // Varsayılan frekans (Hz)
-    pit_timer->frequency = 100; // 100 Hz klasik OS tick
+    pit_timer->frequency = 1000; // 100 Hz klasik OS tick
 
     // ISR kaydı (IRQ0 -> IDT vektör 32)
     if (irq_controller && irq_controller->register_handler) {
@@ -166,7 +166,7 @@ DriverBase pit_driver = {
 
 HardwareTimer pit_timer_instance = {
     .name = "PIT",
-    .frequency = 100, // default OS tick (Hz)
+    .frequency = 1000, // default OS tick (Hz)
     .context = NULL,
     .init = pit_timer_init_wrapper,
     .start = pit_start,

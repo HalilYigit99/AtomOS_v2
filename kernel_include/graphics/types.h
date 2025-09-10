@@ -77,18 +77,9 @@ typedef struct {
     uint8_t* pixels; // Pointer to pixel data
 } gfx_bitmap;
 
-typedef struct {
-    uint32_t mode_id; // Mode id ( VBE mode number or GOP mode number )
-    gfx_size resolution; // Screen resolution
-    uint32_t bpp; // Bits per pixel
-    bool is_linear; // True if linear framebuffer
-    size_t pitch; // Number of bytes per scanline
-} gfx_videomode;
-
 // Global değişkenler
 extern gfx_buffer* screen_buffer; // Global screen buffer
 extern gfx_font* default_font; // Global default font
-extern size_t gfx_videoModeCount; // List of available video modes
 
 extern gfx_font gfx_font8x8; // 8x8 bitmap font
 extern gfx_font gfx_font8x16; // 8x16 bitmap font

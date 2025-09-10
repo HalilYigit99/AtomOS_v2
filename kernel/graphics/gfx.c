@@ -6,26 +6,13 @@
 #include <math.h>
 #include <mouse/mouse.h>
 #include <debug/debug.h>
-
-/*
-
-    TODO: gfx bufferi her seferinde iki katına çıkarmak yerine ihtiyaç kadar büyüt.
-
-*/
-
-size_t screen_width;
-size_t screen_height;
-
-size_t gfx_videoModeCount;
+#include <graphics/screen.h>
 
 List *gfx_buffers;
 static bool gfx_buffers_busy;
 
 gfx_buffer *hardware_buffer;
 gfx_buffer *screen_buffer;
-
-void* screen_fb_Address = NULL;
-uint8_t screen_bpp = 0;
 
 void gfx_draw_task();
 
@@ -46,11 +33,6 @@ void gfx_screen_unregister_buffer(gfx_buffer *buffer)
 void gfx_init()
 {
 
-    if (screen_height == 0) screen_height = mb2_framebuffer->framebuffer_height;
-    if (screen_width == 0) screen_width = mb2_framebuffer->framebuffer_width;
-    if (screen_fb_Address == 0) screen_fb_Address = (void*)(size_t)mb2_framebuffer->framebuffer_addr; 
-    if (screen_bpp == 0) screen_bpp = mb2_framebuffer->framebuffer_bpp;
-
     // Initialize hardware buffer
     hardware_buffer = (gfx_buffer *)malloc(sizeof(gfx_buffer));
 
@@ -60,13 +42,13 @@ void gfx_init()
         asm volatile("cli; hlt"); // Halt the system
     }
 
-    hardware_buffer->size.width = screen_width;
-    hardware_buffer->size.height = screen_height;
+    hardware_buffer->size.width = main_screen.mode->width;
+    hardware_buffer->size.height = main_screen.mode->height;
 
-    size_t fb_addr = (size_t)screen_fb_Address;
+    size_t fb_addr = (size_t)main_screen.mode->framebuffer;
 
     hardware_buffer->buffer = (void *)fb_addr;
-    hardware_buffer->bpp = screen_bpp;
+    hardware_buffer->bpp = main_screen.mode->bpp;
     hardware_buffer->drawBeginLineIndex = 0;
     hardware_buffer->isDirty = true; // Always true
     hardware_buffer->suppress_draw = false; // default: allow drawing
@@ -81,7 +63,7 @@ void gfx_init()
     }
 
     // Initialize screen buffer
-    screen_buffer = gfx_create_buffer(screen_width, screen_height);
+    screen_buffer = gfx_create_buffer(main_screen.mode->width, main_screen.mode->height);
     gfx_clear_buffer(screen_buffer, (gfx_color){.argb = 0xFF000000}); // Clear screen to black
     gfx_screen_register_buffer(screen_buffer);
 }
@@ -558,17 +540,17 @@ void gfx_draw_task()
         if (buffer && buffer->suppress_draw) {
             return;
         }
-        if (screen_bpp == 32)
+        if (main_screen.mode->bpp == 32)
         {
             gfx_draw_bpp32();
         }
-        else if (screen_bpp == 24)
+        else if (main_screen.mode->bpp == 24)
         {
             gfx_draw_bpp24();
         }
         else
         {
-            ERROR("Unsupported framebuffer bpp: %u", screen_bpp);
+            ERROR("Unsupported framebuffer bpp: %u", main_screen.mode->bpp);
         }
     }
 

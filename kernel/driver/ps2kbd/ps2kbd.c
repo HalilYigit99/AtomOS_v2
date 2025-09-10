@@ -60,6 +60,7 @@ static int ps2kbd_stream_readBuffer(void* buffer, size_t size);
 static int ps2kbd_stream_available();
 static char ps2kbd_stream_peek();
 static void ps2kbd_stream_flush();
+static bool ps2_kbd_wait_ack(uint32_t timeout_ms);
 
 void ps2kbd_handler();
 
@@ -178,25 +179,64 @@ static bool ps2_kbd_send_expect_ack(uint8_t data)
     return false;
 }
 
-static bool ps2_kbd_cmd_with_param(uint8_t cmd, uint8_t param)
+static uint8_t ps2_kbd_getScanCodeSet()
 {
-    if (!ps2_kbd_send_expect_ack(cmd)) return false;
-    if (!ps2_kbd_send_expect_ack(param)) return false;
-    return true;
+    ps2_flush_output();
+
+    outb(PS2_DATA_PORT, PS2_KBD_CMD_SET_SCANCODE);
+    io_wait();
+    outb(PS2_DATA_PORT, 0x00); // 0 = get current set
+    ps2_kbd_wait_ack(100);
+
+    sleep_ms(1);
+
+    uint8_t current = 0xFF;
+    if (ps2_read_kbd(&current, 250)) {
+        return current;
+    }
+    LOG("PS/2 Keyboard: failed to get current scancode set ( timeout )");
+    return 0xFF;
+}
+
+static void ps2_kbd_setScanCodeSet(uint8_t set)
+{
+    ps2_flush_output();
+
+    outb(PS2_DATA_PORT, PS2_KBD_CMD_SET_SCANCODE);
+    io_wait();
+    outb(PS2_DATA_PORT, set);
+
+    sleep_ms(1);
+}
+
+static bool ps2_kbd_wait_ack(uint32_t timeout_ms)
+{
+    uint8_t resp;
+    if (ps2_read_kbd(&resp, timeout_ms)) {
+        return resp == PS2_RESPONSE_ACK;
+    }
+    return false;
 }
 
 static bool ps2kbd_init(void) {
 
     ps2kbd_initalized = false;
+    scancodeSetCorrect = false;
+    scancodeSetRetryCount = 0;
 
-    // Check for keyboard abstraction layer initialized
+    // Ensure keyboard abstraction layer is up
     if (!__kbd_abstraction_initialized) {
-        if (keyboardInputStream.Open) keyboardInputStream.Open();
-        else return false;
+        if (keyboardInputStream.Open) {
+            if (keyboardInputStream.Open() != 0) return false;
+        } else {
+            return false;
+        }
     }
 
-    // Initialize the PS/2 keyboard driver
-    ps2_event_buffer = buffer_create(sizeof(KeyboardKeyEventData));
+    // Allocate event buffer once
+    if (!ps2_event_buffer) {
+        ps2_event_buffer = buffer_create(sizeof(KeyboardKeyEventData));
+    }
     if (!ps2_event_buffer) {
         LOG("Failed to create PS/2 keyboard event buffer.");
         return false;
@@ -204,123 +244,104 @@ static bool ps2kbd_init(void) {
 
     LOG("Initializing PS/2 keyboard...");
 
-    // 1) Disable both PS/2 ports to avoid spurious data during setup
-    ps2_write_cmd(PS2_CMD_DISABLE_PORT1);
-    ps2_write_cmd(PS2_CMD_DISABLE_PORT2);
-
-    // 2) Flush any stale bytes in the controller output buffer
+    // 1) Quiesce controller: disable both ports and flush any pending data
+    (void)ps2_write_cmd(PS2_CMD_DISABLE_PORT1);
+    (void)ps2_write_cmd(PS2_CMD_DISABLE_PORT2);
     ps2_flush_output();
 
-    // 3) Read Controller Configuration Byte (CCB)
-    uint8_t config = 0;
+    // 2) Read and update Controller Configuration Byte (CCB)
+    uint8_t ccb = 0;
     if (!ps2_write_cmd(PS2_CMD_READ_CONFIG) || !ps2_wait_output_full_ms(100)) {
-        WARN("PS/2 Keyboard: Failed to read config byte");
+        WARN("PS/2: Unable to read CCB");
         return false;
     }
-    config = inb(PS2_DATA_PORT);
+    ccb = inb(PS2_DATA_PORT);
 
-    // 4) Disable IRQs and translation in CCB while configuring.
-    //    - bit0: first port IRQ (0 = disabled)
-    //    - bit1: second port IRQ (0 = disabled)
-    //    - bit4: first port clock (0 = enabled)
-    //    - bit6: translation (0 = disabled)
-    config &= ~(1 << 0);   // IRQ1 disabled during init
-    config &= ~(1 << 1);   // IRQ12 disabled during init
-    config &= ~(1 << 6);   // translation disabled
-    config &= ~(1 << 4);   // ensure keyboard clock enabled (0 = enabled)
-
-    if (!ps2_write_cmd(PS2_CMD_WRITE_CONFIG) || !ps2_write_data(config)) {
-        WARN("PS/2 Keyboard: Failed to write config byte");
+    // Disable IRQs and translation during configuration
+    ccb &= ~(1 << 0); // IRQ1 off
+    ccb &= ~(1 << 1); // IRQ12 off
+    ccb &= ~(1 << 6); // translation off
+    if (!ps2_write_cmd(PS2_CMD_WRITE_CONFIG) || !ps2_write_data(ccb)) {
+        WARN("PS/2: Unable to write CCB");
         return false;
     }
 
-    // Optional: controller self-test (non-fatal if it fails on odd firmware)
+    // 3) Controller self-test (non-fatal)
     if (ps2_write_cmd(PS2_CMD_TEST_CTRL)) {
-        if (ps2_wait_output_full_ms(200)) {
-            uint8_t self = inb(PS2_DATA_PORT);
-            if (self != 0x55) {
-                LOG("PS/2 Controller self-test reported 0x%02X", self);
+        if (ps2_wait_output_full_ms(250)) {
+            uint8_t st = inb(PS2_DATA_PORT);
+            if (st != 0x55) {
+                LOG("PS/2: Controller self-test 0x%02X", st);
             }
         }
     }
 
-    // 5) Enable first port (keyboard)
-    ps2_write_cmd(PS2_CMD_ENABLE_PORT1);
+    // 4) Interface test for port1 (non-fatal)
+    if (ps2_write_cmd(PS2_CMD_TEST_PORT1) && ps2_wait_output_full_ms(100)) {
+        uint8_t pt = inb(PS2_DATA_PORT);
+        if (pt != 0x00) {
+            LOG("PS/2: Port1 interface test 0x%02X", pt);
+        }
+    }
 
-    // Give some time and ensure buffer is clear
+    // 5) Enable port1 (keyboard)
+    (void)ps2_write_cmd(PS2_CMD_ENABLE_PORT1);
     sleep_ms(1);
     ps2_flush_output();
 
-    // 6) Reset the keyboard; wait for ACK then BAT (0xAA)
+    // 6) Reset keyboard and wait for BAT (0xAA)
     if (!ps2_kbd_send_expect_ack(PS2_KBD_CMD_RESET)) {
-        WARN("PS/2 Keyboard: Reset command did not ACK");
+        WARN("PS/2 Keyboard: reset not ACKed");
         return false;
     }
-    // Wait for BAT 0xAA
     {
         uint8_t b = 0;
         bool got_bat = false;
-        // Wait up to ~1000ms for BAT (0xAA)
         for (int i = 0; i < 1000; ++i) {
             if (ps2_read_kbd(&b, 1)) {
                 if (b == PS2_RESPONSE_SELF_TEST_OK) { got_bat = true; break; }
-                // ignore any other bytes
             }
             sleep_ms(1);
         }
         if (!got_bat) {
-            WARN("PS/2 Keyboard: No BAT (0xAA) after reset");
-            // continue anyway; some devices skip BAT
+            LOG("PS/2 Keyboard: no BAT after reset (continuing)");
+        } else {
+            // Some keyboards send an extra 0x00 after BAT; drain one byte if present
+            uint8_t extra;
+            if (ps2_read_kbd(&extra, 2)) {
+                (void)extra; // ignore
+            }
         }
     }
 
-    // 7) Disable scanning while configuring
+    // 7) Ensure scanning disabled while configuring
     (void)ps2_kbd_send_expect_ack(PS2_KBD_CMD_DISABLE);
 
-set_scancode:
-    // 8) Set scancode set 2
-    if (!ps2_kbd_cmd_with_param(PS2_KBD_CMD_SET_SCANCODE, 0x02)) {
-        WARN("PS/2 Keyboard: Failed to set scancode 2");
-        return false;
+    // 8) Set scancode set 2 and verify with small retry loop
+    for (scancodeSetRetryCount = 0; scancodeSetRetryCount < 3 && !scancodeSetCorrect; ++scancodeSetRetryCount) {
+        ps2_kbd_setScanCodeSet(2);
+        ps2_kbd_wait_ack(100);
+        uint8_t set = ps2_kbd_getScanCodeSet();
+        if (set == 2) {
+            scancodeSetCorrect = true;
+            break;
+        } else {
+            LOG("PS/2 Keyboard: scancode set verify failed (got 0x%02X, expected 0x02), retrying...", set);
+        }
+    }
+    if (!scancodeSetCorrect) {
+        WARN("PS/2 Keyboard: failed to verify scancode set 2");
     }
 
-    // 9) Verify current scancode set
-    if (!ps2_kbd_send_expect_ack(PS2_KBD_CMD_SET_SCANCODE)) {
-        WARN("PS/2 Keyboard: Failed to send F0 for query");
-        return false;
-    }
-    if (!ps2_kbd_send_expect_ack(0x00)) {
-        WARN("PS/2 Keyboard: Failed to request current scancode set");
-        return false;
-    }
-    uint8_t set = 0xFF;
-    if (!ps2_read_kbd(&set, 1000)) {
-        WARN("PS/2 Keyboard: No response for scancode set query");
-    }
-    if (set == 0x02) {
-        scancodeSetCorrect = true;
-    } else {
-        LOG("PS/2 Keyboard: Reported scancode set: 0x%02X", set);
-    }
-    if ((scancodeSetRetryCount < 10) && (scancodeSetCorrect == false)) {
-        scancodeSetRetryCount++;
-        WARN("PS/2 Keyboard: Scancode set verification failed, retrying... (%d/10)", scancodeSetRetryCount);
-        goto set_scancode;
-    }
-
-    // 10) Enable scanning
+    // 9) Enable scanning
     if (!ps2_kbd_send_expect_ack(PS2_KBD_CMD_ENABLE)) {
-        WARN("PS/2 Keyboard: Failed to enable scanning");
+        WARN("PS/2 Keyboard: failed to enable scanning");
         return false;
     }
 
-    // Register the interrupt handler (leave line disabled until enable())
+    // 10) Wire up IRQ handler but keep line disabled; enable happens in enable()
     irq_controller->register_handler(IRQ_PS2_KEYBOARD, ps2kbd_isr);
     irq_controller->disable(IRQ_PS2_KEYBOARD);
-
-    if (!scancodeSetCorrect) {
-        WARN("PS/2 Keyboard: Scancode set verification failed.");
-    }
 
     ps2kbd_initalized = true;
     return true;

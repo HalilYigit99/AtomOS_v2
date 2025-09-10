@@ -11,6 +11,8 @@
 #include <arch.h>
 #include <gfxterm/gfxterm.h>
 #include <stream/OutputStream.h>
+#include <graphics/screen.h>
+#include <sleep.h>
 
 void gfx_draw_task();
 
@@ -20,7 +22,7 @@ extern void acpi_restart();  // ACPI restart function
 extern unsigned char logo_128x128_bmp[];
 extern unsigned int logo_128x128_bmp_len;
 extern void print_memory_regions(void);
-extern GFXTerminal* debug_terminal;
+extern GFXTerminal *debug_terminal;
 
 extern void efi_reset_to_firmware();
 
@@ -28,29 +30,44 @@ void kmain()
 {
     LOG("Welcome to AtomOS!");
     LOG("Booted in %s mode", mb2_is_efi_boot ? "EFI" : "BIOS");
-    LOG("Framebuffer: %ux%u, %u bpp", mb2_framebuffer->framebuffer_width, mb2_framebuffer->framebuffer_height, mb2_framebuffer->framebuffer_bpp);
+    LOG("Framebuffer: %ux%u, %u bpp", main_screen.mode->width, main_screen.mode->height, main_screen.mode->bpp);
 
-    void* test = malloc(16 * 1024 * 1024);
-    if (test) free(test);
-    else LOG("Heap expand failed!");
+    void *test = malloc(16 * 1024 * 1024);
+    if (test)
+        free(test);
+    else
+        LOG("Heap expand failed!");
 
     // Print PCI devices
     LOG("Scanning PCI bus...");
     PCI_Rescan(true);
-    
-    List* pciDevices = PCI_GetDeviceList();
 
-    for (ListNode* node = pciDevices->head; node != NULL; node = node->next) {
-        PCIDevice* dev = (PCIDevice*)node->data;
-        char* class = PCI_GetClassName(dev->classCode);
-        char* subclass = PCI_GetSubClassName(dev->classCode, dev->subclass);
+    List *pciDevices = PCI_GetDeviceList();
+
+    for (ListNode *node = pciDevices->head; node != NULL; node = node->next)
+    {
+        PCIDevice *dev = (PCIDevice *)node->data;
+        char *class = PCI_GetClassName(dev->classCode);
+        char *subclass = PCI_GetSubClassName(dev->classCode, dev->subclass);
 
         LOG("PCI %02X:%02X.%X - %04X:%04X - %s / %s", dev->bus, dev->device, dev->function, dev->vendorID, dev->deviceID, class, subclass);
     }
 
+    LOG("Supported video modes:");
+    for (ListNode *node = main_screen.video_modes->head; node != NULL;
+         node = node->next)
+    {
+        ScreenVideoModeInfo *mode = (ScreenVideoModeInfo *)node->data;
+        LOG(" Mode %u: %ux%u, %u bpp", mode->mode_number, mode->width, mode->height, mode->bpp);
+    }
+    LOG("Current video mode: %ux%u, %u bpp", main_screen.mode->width, main_screen.mode->height, main_screen.mode->bpp);
+
+    LOG("Press ESC to exit to firmware, P to power off, R to restart");
+
     while (1)
     {
-        while (keyboardInputStream.available() == 0) asm volatile ("hlt");
+        while (keyboardInputStream.available() == 0)
+            asm volatile("hlt");
         char c;
         if (keyboardInputStream.readChar(&c) > 0)
         {
@@ -60,42 +77,46 @@ void kmain()
                 if (mb2_is_efi_boot)
                 {
                     efi_reset_to_firmware();
-                }else {
+                }
+                else
+                {
+                    LOG("Not in EFI mode, powering off instead");
+                    sleep_ms(1000);
                     acpi_poweroff();
                 }
-                while (1) asm volatile ("cli; hlt");
-            }else
-            if (c == 'w')
+                while (1)
+                    asm volatile("cli; hlt");
+            }
+            else if (c == 'w')
             {
                 gfxterm_scroll(debug_terminal, -1);
-            }else
-            if (c == 's')
+            }
+            else if (c == 's')
             {
                 gfxterm_scroll(debug_terminal, 1);
-            }else
-            if (c == 'p')
+            }
+            else if (c == 'p')
             {
                 acpi_poweroff();
-            }else
-            if (c == 'r')
+            }
+            else if (c == 'r')
             {
                 LOG("Restart requested via keyboard");
                 acpi_restart();
-            }else
-            if (c == 't')
+            }
+            else if (c == 't')
             {
                 LOG("Current uptime: %llu ms", uptimeMs);
-            }else
-            if (c == 'm')
+            }
+            else if (c == 'm')
             {
                 mouse_enabled = !mouse_enabled;
                 LOG("Mouse %s", mouse_enabled ? "enabled" : "disabled");
-            }else
-            if (c == 'n')
+            }
+            else if (c == 'n')
             {
                 print_memory_regions();
             }
         }
     }
-
 }

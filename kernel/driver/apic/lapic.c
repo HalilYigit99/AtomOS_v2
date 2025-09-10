@@ -3,6 +3,17 @@
 #include <debug/debug.h>
 #include <arch.h>
 
+/* APIC log kategorileri */
+#ifdef APIC_DEBUG
+#define APIC_LOG_G(...) LOG(__VA_ARGS__)
+#define APIC_LOG_D(...) LOG(__VA_ARGS__)
+#define APIC_DBG(expr)  do { expr; } while (0)
+#else
+#define APIC_LOG_G(...) LOG(__VA_ARGS__)
+#define APIC_LOG_D(...) do { if (0) LOG(__VA_ARGS__); } while (0)
+#define APIC_DBG(expr)  do { if (0) { expr; } } while (0)
+#endif
+
 static volatile uint32_t* lapic_mmio = 0; // identity-mapped phys assumed
 static uintptr_t lapic_base_phys = 0;
 
@@ -29,7 +40,7 @@ void lapic_set_base(uintptr_t phys)
 {
     lapic_base_phys = phys;
     lapic_mmio = (volatile uint32_t*)(phys);
-    LOG("LAPIC base set: %p", (void*)phys);
+    APIC_LOG_G("LAPIC base set: %p", (void*)phys);
 }
 
 static inline void lapic_mmio_write(uint32_t reg, uint32_t value)
@@ -64,7 +75,7 @@ void lapic_enable_controller(void)
         /* Our LAPIC ops use xAPIC MMIO; ensure x2APIC is off so MMIO works. */
         apic_base &= ~IA32_APIC_BASE_X2APIC;
         wrmsr(IA32_APIC_BASE_MSR, apic_base);
-        LOG("LAPIC: x2APIC was enabled, disabling to use xAPIC MMIO");
+    APIC_LOG_D("LAPIC: x2APIC was enabled, disabling to use xAPIC MMIO");
         apic_base = rdmsr(IA32_APIC_BASE_MSR);
     }
     if (!(apic_base & IA32_APIC_BASE_ENABLE)) {
