@@ -108,17 +108,87 @@ bool efi_gop_detect(ScreenInfo* screen)
     return true;
 }
 
+bool efi_gop_init()
+{
+    if (efi_gop_driver.enabled) {
+        LOG("efi_gop: zaten etkin, init atlandı");
+        return true;
+    }
 
+    if (!mb2_is_efi_boot) {
+        WARN("efi_gop: EFI modunda değiliz, init atlandı");
+        return false;
+    }
 
+    efi_gop_detect(&main_screen);
 
+    return true;
+
+}
+
+void efi_gop_enable()
+{
+    if (!efi_gop_driver.enabled) {
+        efi_gop_driver.enabled = true;
+        LOG("efi_gop: etkinleştirildi");
+    }
+}
+
+void efi_gop_disable()
+{
+    if (efi_gop_driver.enabled) {
+        efi_gop_driver.enabled = false;
+        LOG("efi_gop: devre dışı bırakıldı");
+    }
+}
+
+void efi_gop_setVideoMode(ScreenInfo* screen, ScreenVideoModeInfo* mode)
+{
+    if (!screen || !mode) {
+        ERROR("efi_gop_setVideoMode: Geçersiz parametreler");
+        return;
+    }
+
+    if (!mb2_is_efi_boot) {
+        WARN("efi_gop_setVideoMode: EFI modunda değiliz, moda geçiş atlandı");
+        return;
+    }
+
+    ASSERT(efi_system_table, "EFI System Table is NULL");
+    ASSERT(efi_system_table->boot_services, "EFI Boot Services is NULL");
+
+    EFI_GUID gop_guid = (EFI_GUID)EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
+    EFI_GRAPHICS_OUTPUT_PROTOCOL* gop = NULL;
+    EFI_STATUS st = efi_system_table->boot_services->locate_protocol(&gop_guid, NULL, (void**)&gop);
+    if (IS_EFI_ERROR(st) || !gop || !gop->mode) {
+        ERROR("efi_gop_setVideoMode: GOP locate_protocol başarısız (st=%lu, gop=%p)", st, gop);
+        return;
+    }
+
+    st = gop->set_mode(gop, mode->mode_number);
+    if (IS_EFI_ERROR(st)) {
+        ERROR("efi_gop_setVideoMode: set_mode(%u) başarısız (st=%lu)", mode->mode_number, st);
+        return;
+    }
+
+    // Framebuffer taban adresini güncelle
+    if (gop->mode && gop->mode->info && gop->mode->frame_buffer_base) {
+        mode->framebuffer = (void*)(uintptr_t)(gop->mode->frame_buffer_base);
+        screen->mode = mode;
+        LOG("efi_gop_setVideoMode: Mod %ux%u, %zubpp (%u) etkinleştirildi, fb=%p",
+            mode->width, mode->height, mode->bpp, mode->mode_number, mode->framebuffer);
+    } else {
+        WARN("efi_gop_setVideoMode: Mod etkinleştirildi ancak framebuffer bilgisi alınamadı");
+    }
+}
 
 DriverBase efi_gop_driver = {
     .name = "EFI Graphics Output Protocol Driver",
     .enabled = false,
     .version = 1,
     .context = NULL,
-    .init = NULL,    // (opsiyonel) sürücü katmanı ile entegrasyon
-    .enable = NULL,  // Enable function can be assigned here
-    .disable = NULL, // Disable function can be assigned here
+    .init = efi_gop_init,    // (opsiyonel) sürücü katmanı ile entegrasyon
+    .enable = efi_gop_enable,  // Enable function can be assigned here
+    .disable = efi_gop_disable, // Disable function can be assigned here
     .type = DRIVER_TYPE_DISPLAY
 };

@@ -30,6 +30,8 @@ extern ScreenInfo main_screen;
 
 extern List* screen_list;
 
+extern void screen_changeVideoMode(ScreenInfo* screen, ScreenVideoModeInfo* mode);
+
 #ifdef __cplusplus
 }
 #endif

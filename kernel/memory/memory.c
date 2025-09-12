@@ -47,3 +47,39 @@ void memmove(void *dest, const void *src, size_t n)
         }
     }
 }
+
+int memcmp(const void *s1, const void *s2, size_t n)
+{
+    if (n == 0 || s1 == s2) return 0;
+
+    if ((n % sizeof(size_t)) == 0 &&
+        (((size_t)s1 % sizeof(size_t)) == 0) &&
+        (((size_t)s2 % sizeof(size_t)) == 0))
+    {
+        const size_t *w1 = (const size_t *)s1;
+        const size_t *w2 = (const size_t *)s2;
+        size_t words = n / sizeof(size_t);
+
+        for (size_t i = 0; i < words; ++i) {
+            if (w1[i] != w2[i]) {
+                const uint8_t *b1 = (const uint8_t *)&w1[i];
+                const uint8_t *b2 = (const uint8_t *)&w2[i];
+                for (size_t j = 0; j < sizeof(size_t); ++j) {
+                    if (b1[j] != b2[j]) {
+                        return (int)b1[j] - (int)b2[j];
+                    }
+                }
+            }
+        }
+        return 0;
+    }
+
+    const uint8_t *a = (const uint8_t *)s1;
+    const uint8_t *b = (const uint8_t *)s2;
+    for (size_t i = 0; i < n; ++i) {
+        if (a[i] != b[i]) {
+            return (int)a[i] - (int)b[i];
+        }
+    }
+    return 0;
+}

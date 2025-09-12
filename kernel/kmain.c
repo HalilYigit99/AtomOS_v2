@@ -26,6 +26,8 @@ extern GFXTerminal *debug_terminal;
 
 extern void efi_reset_to_firmware();
 
+static size_t nextVideoModeIndex = 0;
+
 void kmain()
 {
     LOG("Welcome to AtomOS!");
@@ -62,7 +64,7 @@ void kmain()
     }
     LOG("Current video mode: %ux%u, %u bpp", main_screen.mode->width, main_screen.mode->height, main_screen.mode->bpp);
 
-    LOG("Press ESC to exit to firmware, P to power off, R to restart");
+    LOG("Press ESC to exit to firmware, P to power off, R to restart, T to show uptime, N to list memory regions, M to toggle mouse, W/S to scroll, K to change video mode");
 
     while (1)
     {
@@ -116,6 +118,27 @@ void kmain()
             else if (c == 'n')
             {
                 print_memory_regions();
+            }else if (c == 'k')
+            {
+                LOG("Changing video mode...");
+                
+                if (main_screen.video_modes->count > 1)
+                {
+                    nextVideoModeIndex = (nextVideoModeIndex + 1) % main_screen.video_modes->count;
+                    ListNode *node = main_screen.video_modes->head;
+                    for (size_t i = 0; i < nextVideoModeIndex; i++)
+                    {
+                        if (node->next)
+                            node = node->next;
+                    }
+                    ScreenVideoModeInfo *nextMode = (ScreenVideoModeInfo *)node->data;
+                    screen_changeVideoMode(&main_screen, nextMode);
+                    LOG("Current mode info:\n Mode %u: %ux%u, %u bpp", nextMode->mode_number, nextMode->width, nextMode->height, nextMode->bpp);
+                    gfxterm_resize(debug_terminal, (gfx_size){nextMode->width / debug_terminal->font->size.width, nextMode->height / debug_terminal->font->size.height});
+                    gfxterm_redraw(debug_terminal);
+                }else {
+                    LOG("Only one video mode available, cannot switch");
+                }
             }
         }
     }

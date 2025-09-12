@@ -34,6 +34,9 @@ extern uint32_t mb2_tagptr; // Pointer to the multiboot2 tags
 
 struct multiboot_mmap_entry* efi_mmap_fallback_get_memory_map(uint32_t* entry_count);
 
+uint32_t mb2_signature;
+uint32_t mb2_tagptr;
+
 void multiboot2_parse() {
     struct multiboot_tag *tag;
     

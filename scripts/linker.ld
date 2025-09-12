@@ -7,14 +7,27 @@ ENTRY(_start)
 
 SECTIONS
 {
-    /* Kernel starts at 1MB physical address */
-    . = 0x100000;
-    
+    . = 0x0; /* Start at the beginning of the file */
+
     /* Multiboot header must be early in the file */
     .multiboot : ALIGN(4K)
     {
         *(.multiboot)
     }
+
+    . = 0x7000; /* BIOS code location */
+
+    __bios_code_start = .;
+
+    .bios_code : ALIGN(4K)
+    {
+        *(.bios_code)
+        *(.bios_code.*)
+    }
+    __bios_code_end = .;
+
+    /* Kernel starts at 1MB physical address */
+    . = 0x100000;
     
     /* Text section - executable code */
     .text : ALIGN(4K)

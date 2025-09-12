@@ -48,6 +48,22 @@ gdt_i386:
     db 0x00         ; Flags + Limit (16-19)
     db 0x00         ; Base (24-31) - will be set at runtime
 
+    ; Protected Mode 16-bit Code Segment (0x30)
+    dw 0xFFFF       ; Limit (0-15)
+    dw 0x0000       ; Base (0-15)
+    db 0x00         ; Base (16-23)
+    db 0x9A         ; Access byte (Present, Ring 0, Code, Execute/Read)
+    db 0xCF         ; Flags + Limit (16-19)
+    db 0x00         ; Base (24-31)
+
+    ; Protected Mode 16-bit Data Segment (0x38)
+    dw 0xFFFF       ; Limit (0-15)
+    dw 0x0000       ; Base (0-15)
+    db 0x00         ; Base (16-23)
+    db 0x92         ; Access byte (Present, Ring 0, Data, Read/Write)
+    db 0xCF         ; Flags + Limit (16-19)
+    db 0x00         ; Base (24-31)
+
 gdtr_i386:
     dw $ - gdt_i386 - 1  ; GDT size
     dd gdt_i386          ; GDT address

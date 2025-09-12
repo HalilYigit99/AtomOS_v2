@@ -51,10 +51,3 @@ request_tag_end:
         dw 0    ; Flags
         dd 8    ; Size
 multiboot2_header_end:
-
-global mb2_signature
-global mb2_tagptr
-
-section .bss
-mb2_signature resb 4
-mb2_tagptr resb 4

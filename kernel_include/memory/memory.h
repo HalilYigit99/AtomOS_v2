@@ -20,6 +20,8 @@ extern void memset(void* ptr, char value, size_t num);
 
 extern void memmove(void* dest, const void* src, size_t n);
 
+extern int memcmp(const void* ptr1, const void* ptr2, size_t num);
+
 #ifdef __cplusplus
 }
 #endif

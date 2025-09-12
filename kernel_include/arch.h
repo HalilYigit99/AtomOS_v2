@@ -17,6 +17,8 @@ extern "C" {
 #include <stdbool.h>
 
 typedef struct {
+
+    // Register A
     union {
         uint64_t rax;
         uint32_t eax;
@@ -26,6 +28,8 @@ typedef struct {
             uint8_t ah;
         };
     };
+
+    // Register B
     union {
         uint64_t rbx;
         uint32_t ebx;
@@ -35,6 +39,8 @@ typedef struct {
             uint8_t bh;
         };
     };
+
+    // Register C
     union {
         uint64_t rcx;
         uint32_t ecx;
@@ -44,6 +50,8 @@ typedef struct {
             uint8_t ch;
         };
     };
+
+    // Register D
     union {
         uint64_t rdx;
         uint32_t edx;
@@ -53,6 +61,8 @@ typedef struct {
             uint8_t dh;
         };
     };
+
+    // Register  SI
     union {
         uint64_t rsi;
         uint32_t esi;
@@ -62,6 +72,8 @@ typedef struct {
             uint8_t sih; // Note: sih is not commonly used
         };
     };
+
+    // Register DI
     union {
         uint64_t rdi;
         uint32_t edi;
@@ -71,6 +83,8 @@ typedef struct {
             uint8_t dih; // Note: dih is not commonly used
         };
     };
+    
+    // SP
     union {
         uint64_t rsp;
         uint32_t esp;
@@ -80,6 +94,8 @@ typedef struct {
             uint8_t sph; // Note: sph is not commonly used
         };
     };
+
+    // BP
     union {
         uint64_t rbp;
         uint32_t ebp;
@@ -103,6 +119,7 @@ typedef struct {
     uint16_t fs;
     uint16_t gs;
     uint16_t ss;
+
 } arch_processor_regs_t;
 
 void idt_set_gate(uint8_t vector, size_t offset);
@@ -119,7 +136,11 @@ extern uint32_t inl(uint16_t port);
 extern void     outl(uint16_t port, uint32_t value);
 extern void     io_wait(void);
 
+extern bool arch_isEfiBoot(void);
+
 extern void arch_cpuid(uint32_t leaf, size_t* regA, size_t* regB, size_t* regC, size_t* regD);
+
+extern void arch_bios_int(uint8_t int_no, arch_processor_regs_t* in, arch_processor_regs_t* out);
 
 #ifdef __cplusplus
 }
