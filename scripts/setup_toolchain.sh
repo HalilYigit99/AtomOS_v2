@@ -103,10 +103,10 @@ download_package() {
     local urls=()
     if [ "$package_name" = "binutils" ]; then
         urls=(
-            "https://ftp.gnu.org/gnu/binutils/binutils-$version.tar.xz"
             "https://mirrors.kernel.org/gnu/binutils/binutils-$version.tar.xz"
-            "https://sourceware.org/pub/binutils/releases/binutils-$version.tar.xz"
             "https://ftp.gnu.org/gnu/binutils/binutils-2.40.tar.xz"
+            "https://ftp.gnu.org/gnu/binutils/binutils-$version.tar.xz"
+            "https://sourceware.org/pub/binutils/releases/binutils-$version.tar.xz"
         )
     elif [ "$package_name" = "gcc" ]; then
         urls=(
@@ -119,7 +119,7 @@ download_package() {
     log_build "Auto-trying multiple sources for $package_name $version..."
     for url in "${urls[@]}"; do
         log_info "Trying: $url"
-        if wget --no-check-certificate --timeout=30 -O "$cache_file.tmp" "$url" 2>/dev/null; then
+        if wget --no-check-certificate --timeout=30 -O "$cache_file.tmp" "$url" ; then
             mv "$cache_file.tmp" "$cache_file"
             log_info "Successfully downloaded from: $url"
             return 0
