@@ -10,6 +10,8 @@ static bool enabled = false;
 static uint8_t packet_buffer[3];
 static size_t packet_index = 0;
 
+static bool ps2mouse_initialized = false;
+
 extern int cursor_X;
 extern int cursor_Y;
 extern void ps2mouse_isr(void);
@@ -94,6 +96,12 @@ static bool ps2_expect_aux(uint8_t expected, uint32_t limit)
 }
 
 bool ps2mouse_init(void) {
+
+    if (ps2mouse_initialized) {
+        WARN("PS/2 mouse driver is already initalized!");
+        return true;
+    }
+
     LOG("PS/2 mouse initializing...");
 
     // Çıkış tamponunu temizle (karma veri kalmasın)
@@ -193,10 +201,16 @@ bool ps2mouse_init(void) {
 
     LOG("PS/2 Mouse: Initialization successful.");
 
+    ps2mouse_initialized = true;
+
     return true;
 }
 
 void ps2mouse_enable(void) {
+    if (!ps2mouse_initialized) {
+        ERROR("PS/2 mouse driver is not initialized yet!");
+        return;
+    }
     if (!enabled) {
         // Veri raporlamayı aç ve ACK'yi kesme açmadan önce tüket
         for (int tries = 0; tries < 3; ++tries) {
@@ -216,6 +230,10 @@ void ps2mouse_enable(void) {
 }
 
 void ps2mouse_disable(void) {
+    if (!ps2mouse_initialized) {
+        ERROR("PS/2 mouse driver is not initialized yet!");
+        return;
+    }
     if (enabled) {
 
         // Disable data reporting

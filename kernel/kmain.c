@@ -16,6 +16,10 @@
 #include <sleep.h>
 #include <stream/DiskStream.h>
 #include <util/dump.h>
+#include <filesystem/VFS.h>
+#include <filesystem/ramfs.h>
+#include <util/string.h>
+#include <stdint.h>
 
 void gfx_draw_task();
 
@@ -34,11 +38,70 @@ static size_t nextVideoModeIndex = 0;
 static size_t nextSectorIndex = 0;
 static DiskStream* diskStream0;
 
+extern void VFS_RamFSTest_Run(void);
+
 void kmain()
 {
     LOG("Welcome to AtomOS!");
     LOG("Booted in %s mode", mb2_is_efi_boot ? "EFI" : "BIOS");
     LOG("Framebuffer: %ux%u, %u bpp", main_screen.mode->width, main_screen.mode->height, main_screen.mode->bpp);
+
+    VFS_Init();
+    VFSFileSystem* rootfs = RamFS_Create("rootfs");
+    if (!rootfs)
+    {
+        ERROR("VFS: failed to create ramfs instance");
+    }
+    else
+    {
+        VFSResult reg_res = VFS_RegisterFileSystem(rootfs);
+        if (reg_res != VFS_RES_OK)
+        {
+            ERROR("VFS: registration failed (%d)", reg_res);
+            RamFS_Destroy(rootfs);
+            rootfs = NULL;
+        }
+        else
+        {
+            VFSMount* root_mount = VFS_Mount("/", rootfs, NULL);
+            if (!root_mount)
+            {
+                ERROR("VFS: mount failed");
+            }
+            else
+            {
+                LOG("VFS: root filesystem '%s' mounted", rootfs->name);
+                VFSResult mkdir_res = VFS_Create("/system", VFS_NODE_DIRECTORY);
+                if (mkdir_res != VFS_RES_OK && mkdir_res != VFS_RES_EXISTS)
+                {
+                    WARN("VFS: unable to create /system (%d)", mkdir_res);
+                }
+                VFSResult mkfile_res = VFS_Create("/system/info.txt", VFS_NODE_REGULAR);
+                if (mkfile_res != VFS_RES_OK && mkfile_res != VFS_RES_EXISTS)
+                {
+                    WARN("VFS: unable to create info.txt (%d)", mkfile_res);
+                }
+                else
+                {
+                    VFS_HANDLE info_handle = VFS_Open("/system/info.txt", VFS_OPEN_READ | VFS_OPEN_WRITE | VFS_OPEN_TRUNC);
+                    if (info_handle)
+                    {
+                        const char* banner = "AtomOS VFS online\n";
+                        VFS_Write(info_handle, banner, strlen(banner));
+                        VFS_SeekHandle(info_handle, 0, VFS_SEEK_SET, NULL);
+                        char buffer[64];
+                        int64_t read = VFS_Read(info_handle, buffer, sizeof(buffer) - 1);
+                        if (read > 0)
+                        {
+                            buffer[read] = '\0';
+                            LOG("VFS sample file: %s", buffer);
+                        }
+                        VFS_Close(info_handle);
+                    }
+                }
+            }
+        }
+    }
 
     void *test = malloc(16 * 1024 * 1024);
     if (test)
@@ -165,10 +228,14 @@ void kmain()
                     screen_changeVideoMode(&main_screen, nextMode);
                     LOG("Current mode info:\nMode %u: %ux%u, %u bpp", nextMode->mode_number, nextMode->width, nextMode->height, nextMode->bpp);
                     gfxterm_resize(debug_terminal, (gfx_size){nextMode->width / debug_terminal->font->size.width, nextMode->height / debug_terminal->font->size.height});
+                    gfxterm_clear(debug_terminal);
                     gfxterm_redraw(debug_terminal);
                 }else {
                     LOG("Only one video mode available, cannot switch");
                 }
+            }else if (c == 'v')
+            {
+                VFS_RamFSTest_Run();
             }
         }
     }

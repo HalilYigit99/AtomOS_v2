@@ -13,6 +13,8 @@
 #include <stream/OutputStream.h>
 #include <task/PeriodicTask.h>
 
+#define MODERN_HARDWARE
+
 extern DriverBase pic8259_driver;
 extern DriverBase ps2kbd_driver;
 extern DriverBase ps2mouse_driver;
@@ -111,6 +113,7 @@ void __boot_kernel_start(void)
     print_memory_regions();
 
     // APIC varsa onu kullan, yoksa PIC'e düş
+#ifdef MODERN_HARDWARE
     if (apic_supported())
     {
         LOG("Using APIC interrupt controller");
@@ -118,6 +121,7 @@ void __boot_kernel_start(void)
         system_driver_enable(&apic_driver);
     }
     else
+#endif
     {
         LOG("Using PIC8259 interrupt controller");
         system_driver_register(&pic8259_driver);
@@ -125,11 +129,14 @@ void __boot_kernel_start(void)
     }
 
     // System tick: prefer HPET if available, else PIT
+#ifdef MODERN_HARDWARE
     if (hpet_supported()) {
         LOG("HPET supported – using HPET for system tick");
         system_driver_register(&hpet_driver);
         system_driver_enable(&hpet_driver);
-    } else {
+    } else 
+#endif
+    {
         LOG("HPET not available – falling back to PIT");
         system_driver_register(&pit_driver);
         system_driver_enable(&pit_driver);
