@@ -18,9 +18,9 @@ void arch_bios_int(uint8_t int_no, arch_processor_regs_t* in, arch_processor_reg
 {
     if (arch_isEfiBoot())
     {
-        LOG("EFI boot detected, BIOS interrupts are not supported.\n");
+        LOG("EFI boot detected, BIOS interrupts are not supported.");
     }else {
-        LOG("BIOS interrupt 0x%02X called with AX=0x%04X\n", int_no, in->ax);
+        LOG("BIOS interrupt 0x%02X called with AX=0x%04X", int_no, in->ax);
         #ifdef ARCH_AMD
         amd_bios_int(int_no, in, out);
         #else

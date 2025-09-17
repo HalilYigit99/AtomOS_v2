@@ -20,6 +20,8 @@ extern DriverBase pit_driver;
 extern DriverBase apic_driver;
 extern DriverBase ahci_driver;
 extern DriverBase ata_driver;
+extern DriverBase hpet_driver;
+extern bool hpet_supported();
 
 extern uint32_t mb2_signature;
 extern uint32_t mb2_tagptr;
@@ -92,6 +94,7 @@ void __boot_kernel_start(void)
     /* ACPI tablolarını multiboot üzerinden başlat */
     acpi_init();
 
+    // Don't exit boot services yet; some modules may need it ( ChangeVideoMode function, AHCI driver, etc.)
     // if (mb2_is_efi_boot)
     // {
     //     LOG("Exiting boot services");
@@ -121,18 +124,28 @@ void __boot_kernel_start(void)
         system_driver_enable(&pic8259_driver);
     }
 
-    // PIT (system tick)
-    system_driver_register(&pit_driver);
-    system_driver_enable(&pit_driver);
+    // System tick: prefer HPET if available, else PIT
+    if (hpet_supported()) {
+        LOG("HPET supported – using HPET for system tick");
+        system_driver_register(&hpet_driver);
+        system_driver_enable(&hpet_driver);
+    } else {
+        LOG("HPET not available – falling back to PIT");
+        system_driver_register(&pit_driver);
+        system_driver_enable(&pit_driver);
+    }
 
     irq_controller->acknowledge(0); // Acknowledge IRQ0 (PIT)
 
     asm volatile ("sti"); // Enable interrupts
 
-    if (pit_timer)
-    {
-        pit_timer->setFrequency(1000);            // 1000 Hz
-        pit_timer->add_callback(uptime_counter_task); // Uptime sayaç görevini ekle
+    // Hook uptime tick to the active hardware timer
+    if (hpet_supported() && hpet_timer) {
+        hpet_timer->setFrequency(1000);
+        hpet_timer->add_callback(uptime_counter_task);
+    } else if (pit_timer) {
+        pit_timer->setFrequency(1000);
+        pit_timer->add_callback(uptime_counter_task);
     }
 
     gfx_init();

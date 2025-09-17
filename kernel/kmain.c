@@ -12,7 +12,10 @@
 #include <gfxterm/gfxterm.h>
 #include <stream/OutputStream.h>
 #include <graphics/screen.h>
+#include <storage/BlockDevice.h>
 #include <sleep.h>
+#include <stream/DiskStream.h>
+#include <util/dump.h>
 
 void gfx_draw_task();
 
@@ -27,6 +30,9 @@ extern GFXTerminal *debug_terminal;
 extern void efi_reset_to_firmware();
 
 static size_t nextVideoModeIndex = 0;
+
+static size_t nextSectorIndex = 0;
+static DiskStream* diskStream0;
 
 void kmain()
 {
@@ -118,6 +124,30 @@ void kmain()
             else if (c == 'n')
             {
                 print_memory_regions();
+            }else if(c == 'h')
+            {
+                // Read disk sector
+                if (!diskStream0)
+                {
+                    if (BlockDevice_Count() == 0) {
+                        WARN("No BlockDevice detected!");
+                        continue;
+                    }
+                    diskStream0 = DiskStream_CreateFromBlockDevice(BlockDevice_GetAt(0));
+                    DiskStream_Open(diskStream0, true);
+                }
+
+                void* result = DiskStream_ReadSector(diskStream0, nextSectorIndex);
+                nextSectorIndex++;
+
+                if (!result)
+                {
+                    WARN("Read operation returned 'null'");
+                    continue;
+                }
+
+                dumpHex8(result, 8 ,8 , 512, currentOutputStream);
+                free(result);
             }else if (c == 'k')
             {
                 LOG("Changing video mode...");
@@ -133,7 +163,7 @@ void kmain()
                     }
                     ScreenVideoModeInfo *nextMode = (ScreenVideoModeInfo *)node->data;
                     screen_changeVideoMode(&main_screen, nextMode);
-                    LOG("Current mode info:\n Mode %u: %ux%u, %u bpp", nextMode->mode_number, nextMode->width, nextMode->height, nextMode->bpp);
+                    LOG("Current mode info:\nMode %u: %ux%u, %u bpp", nextMode->mode_number, nextMode->width, nextMode->height, nextMode->bpp);
                     gfxterm_resize(debug_terminal, (gfx_size){nextMode->width / debug_terminal->font->size.width, nextMode->height / debug_terminal->font->size.height});
                     gfxterm_redraw(debug_terminal);
                 }else {
