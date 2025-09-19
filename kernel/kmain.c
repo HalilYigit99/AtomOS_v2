@@ -13,11 +13,16 @@
 #include <stream/OutputStream.h>
 #include <graphics/screen.h>
 #include <storage/BlockDevice.h>
+#include <storage/Volume.h>
 #include <sleep.h>
 #include <stream/DiskStream.h>
 #include <util/dump.h>
 #include <filesystem/VFS.h>
 #include <filesystem/ramfs.h>
+#include <filesystem/fat/fatfs.h>
+#include <filesystem/iso9660.h>
+#include <filesystem/ntfs.h>
+#include <util/convert.h>
 #include <util/string.h>
 #include <stdint.h>
 
@@ -33,210 +38,140 @@ extern GFXTerminal *debug_terminal;
 
 extern void efi_reset_to_firmware();
 
-static size_t nextVideoModeIndex = 0;
-
-static size_t nextSectorIndex = 0;
-static DiskStream* diskStream0;
-
+extern void FAT_Test_Run(void);
 extern void VFS_RamFSTest_Run(void);
+
+static void log_directory_recursive(VFSNode* dir, int depth)
+{
+    if (!dir) return;
+
+    char indent[64];
+    int pad = depth * 2;
+    if (pad >= (int)sizeof(indent)) pad = (int)sizeof(indent) - 1;
+    memset(indent, ' ', (size_t)pad);
+    indent[pad] = '\0';
+
+    VFSDirEntry entry;
+    for (size_t idx = 0;; ++idx)
+    {
+        VFSResult res = VFS_ReadDir(dir, idx, &entry);
+        if (res != VFS_RES_OK)
+            break;
+
+        if (strcmp(entry.name, ".") == 0 || strcmp(entry.name, "..") == 0)
+            continue;
+
+        LOG("%s%s (%s)", indent, entry.name,
+            entry.type == VFS_NODE_DIRECTORY ? "dir" : "file");
+
+        if (entry.type == VFS_NODE_DIRECTORY)
+        {
+            VFSNode* child = NULL;
+            if (VFS_ResolveAt(dir, entry.name, &child, true) == VFS_RES_OK && child)
+            {
+                if (depth - 1) log_directory_recursive(child, depth - 1);
+            }
+        }
+    }
+}
 
 void kmain()
 {
-    LOG("Welcome to AtomOS!");
-    LOG("Booted in %s mode", mb2_is_efi_boot ? "EFI" : "BIOS");
-    LOG("Framebuffer: %ux%u, %u bpp", main_screen.mode->width, main_screen.mode->height, main_screen.mode->bpp);
 
     VFS_Init();
-    VFSFileSystem* rootfs = RamFS_Create("rootfs");
-    if (!rootfs)
+    FATFS_Register();
+    NTFS_Register();
+    ISO9660_Register();
+
+    VolumeManager_Init();
+    VolumeManager_Rebuild();
+
+    char mounted_path_buf[128];
+    mounted_path_buf[0] = '\0';
+    const char* mounted_path = NULL;
+    VFSMount* active_mount = NULL;
+
+    size_t volume_count = VolumeManager_Count();
+    for (size_t i = 0; i < volume_count; ++i)
     {
-        ERROR("VFS: failed to create ramfs instance");
-    }
-    else
-    {
-        VFSResult reg_res = VFS_RegisterFileSystem(rootfs);
-        if (reg_res != VFS_RES_OK)
+        Volume* volume = VolumeManager_GetAt(i);
+        if (!volume) continue;
+
+        const char* vol_name = Volume_Name(volume);
+        if (!vol_name || !vol_name[0])
+            vol_name = "volume";
+
+        char mount_path[128];
+        strcpy(mount_path, "/mnt/");
+        size_t base_len = strlen(mount_path);
+        size_t remaining = sizeof(mount_path) - base_len - 1;
+        if (remaining > 0)
         {
-            ERROR("VFS: registration failed (%d)", reg_res);
-            RamFS_Destroy(rootfs);
-            rootfs = NULL;
+            size_t copy_len = strlen(vol_name);
+            if (copy_len > remaining) copy_len = remaining;
+            memcpy(mount_path + base_len, vol_name, copy_len);
+            mount_path[base_len + copy_len] = '\0';
+        }
+
+        for (char* p = mount_path + base_len; *p; ++p)
+        {
+            if (*p == '/') *p = '_';
+        }
+
+        VFSMountParams params = {
+            .source = Volume_Name(volume),
+            .block_device = volume->device,
+            .volume = volume,
+            .context = NULL,
+            .flags = 0,
+        };
+
+        VFSMount* mount = VFS_MountAuto(mount_path, &params);
+        if (mount)
+        {
+            strcpy(mounted_path_buf, mount_path);
+            mounted_path = mounted_path_buf;
+            active_mount = mount;
+            break;
+        }
+    }
+
+    if (active_mount && mounted_path)
+    {
+        VFSNode* root_node = VFS_GetMountRoot(active_mount);
+        if (root_node)
+        {
+            LOG("Listing contents of %s:", mounted_path);
+            log_directory_recursive(root_node, 2);
+        }
+
+        char file_path[256];
+        strcpy(file_path, mounted_path);
+        strcat(file_path, "/hello.txt");
+
+        VFS_HANDLE file = VFS_Open(file_path, VFS_OPEN_READ);
+        if (file)
+        {
+            void* buffer = calloc(4096, 1);
+            int64_t read_bytes = VFS_Read(file, buffer, 4096);
+
+            LOG("%s: ", file_path);
+            size_t dump_len = (read_bytes > 0)
+                              ? ((size_t)read_bytes < 4096 ? (size_t)read_bytes : 4096)
+                              : 0;
+            dumpHex8(buffer, 8, 8, dump_len, currentOutputStream);
+
+            VFS_Close(file);
+            free(buffer);
         }
         else
         {
-            VFSMount* root_mount = VFS_Mount("/", rootfs, NULL);
-            if (!root_mount)
-            {
-                ERROR("VFS: mount failed");
-            }
-            else
-            {
-                LOG("VFS: root filesystem '%s' mounted", rootfs->name);
-                VFSResult mkdir_res = VFS_Create("/system", VFS_NODE_DIRECTORY);
-                if (mkdir_res != VFS_RES_OK && mkdir_res != VFS_RES_EXISTS)
-                {
-                    WARN("VFS: unable to create /system (%d)", mkdir_res);
-                }
-                VFSResult mkfile_res = VFS_Create("/system/info.txt", VFS_NODE_REGULAR);
-                if (mkfile_res != VFS_RES_OK && mkfile_res != VFS_RES_EXISTS)
-                {
-                    WARN("VFS: unable to create info.txt (%d)", mkfile_res);
-                }
-                else
-                {
-                    VFS_HANDLE info_handle = VFS_Open("/system/info.txt", VFS_OPEN_READ | VFS_OPEN_WRITE | VFS_OPEN_TRUNC);
-                    if (info_handle)
-                    {
-                        const char* banner = "AtomOS VFS online\n";
-                        VFS_Write(info_handle, banner, strlen(banner));
-                        VFS_SeekHandle(info_handle, 0, VFS_SEEK_SET, NULL);
-                        char buffer[64];
-                        int64_t read = VFS_Read(info_handle, buffer, sizeof(buffer) - 1);
-                        if (read > 0)
-                        {
-                            buffer[read] = '\0';
-                            LOG("VFS sample file: %s", buffer);
-                        }
-                        VFS_Close(info_handle);
-                    }
-                }
-            }
+            WARN("Failed to open %s", file_path);
         }
     }
-
-    void *test = malloc(16 * 1024 * 1024);
-    if (test)
-        free(test);
     else
-        LOG("Heap expand failed!");
-
-    // Print PCI devices
-    LOG("Scanning PCI bus...");
-    PCI_Rescan(true);
-
-    List *pciDevices = PCI_GetDeviceList();
-
-    for (ListNode *node = pciDevices->head; node != NULL; node = node->next)
     {
-        PCIDevice *dev = (PCIDevice *)node->data;
-        char *class = PCI_GetClassName(dev->classCode);
-        char *subclass = PCI_GetSubClassName(dev->classCode, dev->subclass);
-
-        LOG("PCI %02X:%02X.%X - %04X:%04X - %s / %s", dev->bus, dev->device, dev->function, dev->vendorID, dev->deviceID, class, subclass);
+        WARN("No FAT or NTFS volume could be mounted");
     }
 
-    LOG("Supported video modes:");
-    for (ListNode *node = main_screen.video_modes->head; node != NULL;
-         node = node->next)
-    {
-        ScreenVideoModeInfo *mode = (ScreenVideoModeInfo *)node->data;
-        LOG(" Mode %u: %ux%u, %u bpp", mode->mode_number, mode->width, mode->height, mode->bpp);
-    }
-    LOG("Current video mode: %ux%u, %u bpp", main_screen.mode->width, main_screen.mode->height, main_screen.mode->bpp);
-
-    LOG("Press ESC to exit to firmware, P to power off, R to restart, T to show uptime, N to list memory regions, M to toggle mouse, W/S to scroll, K to change video mode");
-
-    while (1)
-    {
-        while (keyboardInputStream.available() == 0)
-            asm volatile("hlt");
-        char c;
-        if (keyboardInputStream.readChar(&c) > 0)
-        {
-            if (c == 27) // ESC key to exit
-            {
-                LOG("ESC pressed, exiting to firmware...");
-                if (mb2_is_efi_boot)
-                {
-                    efi_reset_to_firmware();
-                }
-                else
-                {
-                    LOG("Not in EFI mode, powering off instead");
-                    sleep_ms(1000);
-                    acpi_poweroff();
-                }
-                while (1)
-                    asm volatile("cli; hlt");
-            }
-            else if (c == 'w')
-            {
-                gfxterm_scroll(debug_terminal, -1);
-            }
-            else if (c == 's')
-            {
-                gfxterm_scroll(debug_terminal, 1);
-            }
-            else if (c == 'p')
-            {
-                acpi_poweroff();
-            }
-            else if (c == 'r')
-            {
-                LOG("Restart requested via keyboard");
-                acpi_restart();
-            }
-            else if (c == 't')
-            {
-                LOG("Current uptime: %llu ms", uptimeMs);
-            }
-            else if (c == 'm')
-            {
-                mouse_enabled = !mouse_enabled;
-                LOG("Mouse %s", mouse_enabled ? "enabled" : "disabled");
-            }
-            else if (c == 'n')
-            {
-                print_memory_regions();
-            }else if(c == 'h')
-            {
-                // Read disk sector
-                if (!diskStream0)
-                {
-                    if (BlockDevice_Count() == 0) {
-                        WARN("No BlockDevice detected!");
-                        continue;
-                    }
-                    diskStream0 = DiskStream_CreateFromBlockDevice(BlockDevice_GetAt(0));
-                    DiskStream_Open(diskStream0, true);
-                }
-
-                void* result = DiskStream_ReadSector(diskStream0, nextSectorIndex);
-                nextSectorIndex++;
-
-                if (!result)
-                {
-                    WARN("Read operation returned 'null'");
-                    continue;
-                }
-
-                dumpHex8(result, 8 ,8 , 512, currentOutputStream);
-                free(result);
-            }else if (c == 'k')
-            {
-                LOG("Changing video mode...");
-                
-                if (main_screen.video_modes->count > 1)
-                {
-                    nextVideoModeIndex = (nextVideoModeIndex + 1) % main_screen.video_modes->count;
-                    ListNode *node = main_screen.video_modes->head;
-                    for (size_t i = 0; i < nextVideoModeIndex; i++)
-                    {
-                        if (node->next)
-                            node = node->next;
-                    }
-                    ScreenVideoModeInfo *nextMode = (ScreenVideoModeInfo *)node->data;
-                    screen_changeVideoMode(&main_screen, nextMode);
-                    LOG("Current mode info:\nMode %u: %ux%u, %u bpp", nextMode->mode_number, nextMode->width, nextMode->height, nextMode->bpp);
-                    gfxterm_resize(debug_terminal, (gfx_size){nextMode->width / debug_terminal->font->size.width, nextMode->height / debug_terminal->font->size.height});
-                    gfxterm_clear(debug_terminal);
-                    gfxterm_redraw(debug_terminal);
-                }else {
-                    LOG("Only one video mode available, cannot switch");
-                }
-            }else if (c == 'v')
-            {
-                VFS_RamFSTest_Run();
-            }
-        }
-    }
 }

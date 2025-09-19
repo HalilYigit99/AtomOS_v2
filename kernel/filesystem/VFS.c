@@ -53,7 +53,7 @@ bool VFS_IsInitialized(void)
 
 VFSResult VFS_RegisterFileSystem(VFSFileSystem* fs)
 {
-    if (!s_vfs_initialized || !fs || !fs->name || !fs->ops || !fs->ops->mount)
+    if (!s_vfs_initialized || !fs || !fs->name || !fs->ops || !fs->ops->mount || !fs->ops->probe)
         return VFS_RES_INVALID;
 
     if (!s_filesystems) return VFS_RES_ERROR;
@@ -154,6 +154,50 @@ VFSMount* VFS_Mount(const char* target, VFSFileSystem* fs, const VFSMountParams*
     }
 
     LOG("VFS: mounted '%s' at '%s'", fs->name, mount->path);
+    return mount;
+}
+
+VFSFileSystem* VFS_DetectFileSystem(const VFSMountParams* params)
+{
+    if (!s_vfs_initialized || !params || !s_filesystems)
+        return NULL;
+
+    for (ListNode* it = List_Foreach_Begin(s_filesystems); it; it = List_Foreach_Next(it))
+    {
+        VFSFileSystem* fs = (VFSFileSystem*)List_Foreach_Data(it);
+        if (!fs || !fs->ops || !fs->ops->probe)
+            continue;
+        bool matches = fs->ops->probe(fs, params);
+        if (matches)
+            return fs;
+    }
+
+    return NULL;
+}
+
+VFSMount* VFS_MountAuto(const char* target, const VFSMountParams* params)
+{
+    if (!s_vfs_initialized || !target || !params)
+        return NULL;
+
+    if (!s_filesystems || List_IsEmpty(s_filesystems))
+        return NULL;
+
+    VFSMount* mount = NULL;
+    for (ListNode* it = List_Foreach_Begin(s_filesystems); it; it = List_Foreach_Next(it))
+    {
+        VFSFileSystem* fs = (VFSFileSystem*)List_Foreach_Data(it);
+        if (!fs || !fs->ops || !fs->ops->probe)
+            continue;
+
+        if (!fs->ops->probe(fs, params))
+            continue;
+
+        mount = VFS_Mount(target, fs, params);
+        if (mount)
+            break;
+    }
+
     return mount;
 }
 

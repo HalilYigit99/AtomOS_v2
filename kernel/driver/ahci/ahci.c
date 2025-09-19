@@ -77,14 +77,14 @@ static void ahci_port_stop(volatile hba_port_t* p)
     // Wait until CR cleared
     {
         uint32_t spin = 1000000;
-        while ((p->cmd & HBA_PxCMD_CR) && spin--) {}
+        while ((p->cmd & HBA_PxCMD_CR) && spin--) {asm volatile ("hlt");}
         if (p->cmd & HBA_PxCMD_CR) WARN("AHCI: port stop timeout (CR still set)");
     }
     // Clear FRE and wait FR cleared
     p->cmd &= ~HBA_PxCMD_FRE;
     {
         uint32_t spin = 1000000;
-        while ((p->cmd & HBA_PxCMD_FR) && spin--) {}
+        while ((p->cmd & HBA_PxCMD_FR) && spin--) {asm volatile ("hlt"); }
         if (p->cmd & HBA_PxCMD_FR) WARN("AHCI: port stop timeout (FR still set)");
     }
 }
@@ -99,7 +99,7 @@ static void ahci_port_start(volatile hba_port_t* p)
     p->cmd |= HBA_PxCMD_FRE;
     {
         uint32_t spin = 1000000;
-        while (((p->cmd & HBA_PxCMD_FR) == 0) && spin--) {}
+        while (((p->cmd & HBA_PxCMD_FR) == 0) && spin--) {asm volatile ("hlt"); }
         if ((p->cmd & HBA_PxCMD_FR) == 0) WARN("AHCI: PxCMD.FR did not assert after FRE");
     }
 
@@ -107,7 +107,7 @@ static void ahci_port_start(volatile hba_port_t* p)
     p->cmd |= HBA_PxCMD_ST;
     {
         uint32_t spin = 1000000;
-        while (((p->cmd & HBA_PxCMD_CR) == 0) && spin--) {}
+        while (((p->cmd & HBA_PxCMD_CR) == 0) && spin--) { asm volatile ("hlt"); }
         // If CR doesn't set immediately it's still ok on some controllers
     }
 }
@@ -141,11 +141,11 @@ static void ahci_port_recover(ahci_port_ctx_t* ctx, const char* tag)
         // Stop engine
         p->cmd &= ~HBA_PxCMD_ST;
         {
-            uint32_t spin = 1000000; while ((p->cmd & HBA_PxCMD_CR) && spin--) {}
+            uint32_t spin = 1000000; while ((p->cmd & HBA_PxCMD_CR) && spin--) { asm volatile ("hlt"); }
         }
         p->cmd &= ~HBA_PxCMD_FRE;
         {
-            uint32_t spin = 1000000; while ((p->cmd & HBA_PxCMD_FR) && spin--) {}
+            uint32_t spin = 1000000; while ((p->cmd & HBA_PxCMD_FR) && spin--) { asm volatile ("hlt"); }
         }
         // Restart
         p->is = 0xFFFFFFFFu; p->serr = 0xFFFFFFFFu; mmio_wmb();
@@ -202,7 +202,7 @@ static bool ahci_read_sector(ahci_port_ctx_t* ctx, uint64_t lba, uint32_t count,
     // Wait if busy (bounded)
     {
         uint32_t spin = 1000000;
-        while ((p->tfd & (HBA_PxTFD_BSY | HBA_PxTFD_DRQ)) && spin--) {}
+        while ((p->tfd & (HBA_PxTFD_BSY | HBA_PxTFD_DRQ)) && spin--) { asm volatile ("pause"); }
         if (p->tfd & (HBA_PxTFD_BSY | HBA_PxTFD_DRQ)) {
             ERROR("AHCI: Port %u busy before READ DMA (TFD=0x%08x)", ctx->port_no, p->tfd);
             return false;
@@ -264,6 +264,7 @@ static bool ahci_read_sector(ahci_port_ctx_t* ctx, uint64_t lba, uint32_t count,
                 ERROR("AHCI: TFES error on port %u (IS=0x%08x TFD=0x%08x)", ctx->port_no, p->is, p->tfd);
                 return false;
             }
+            asm volatile ("pause");  
         }
         // Clear any latched irq events
         ctx->irq_events = 0;
@@ -283,7 +284,7 @@ static bool ahci_issue_flush(ahci_port_ctx_t* ctx, uint8_t opcode)
     // Wait if busy
     {
         uint32_t spin = 1000000;
-        while ((p->tfd & (HBA_PxTFD_BSY | HBA_PxTFD_DRQ)) && spin--) {}
+        while ((p->tfd & (HBA_PxTFD_BSY | HBA_PxTFD_DRQ)) && spin--) { asm volatile ("pause"); }
         if (p->tfd & (HBA_PxTFD_BSY | HBA_PxTFD_DRQ)) return false;
     }
 
@@ -316,6 +317,7 @@ static bool ahci_issue_flush(ahci_port_ctx_t* ctx, uint8_t opcode)
         if ((p->ci & 1u) == 0) break;
         if (ctx->irq_events) break;
         if (p->is & HBA_PxIS_TFES) return false;
+        asm volatile ("pause"); 
     }
     ctx->irq_events = 0;
     if (p->ci & 1u) return false;
@@ -331,6 +333,7 @@ static bool ahci_blk_read(struct BlockDevice* bdev, uint64_t lba, uint32_t count
         uint32_t n = (count > 128) ? 128 : count;
         if (!ahci_read_sector(ctx, lba, n, out)) return false;
         lba += n; out += n * 512; count -= n;
+        asm volatile ("pause"); 
     }
     return true;
 }
@@ -349,7 +352,7 @@ static bool ahci_blk_write(struct BlockDevice* bdev, uint64_t lba, uint32_t coun
         // Wait if busy
         {
             uint32_t spin = 1000000;
-            while ((p->tfd & (HBA_PxTFD_BSY | HBA_PxTFD_DRQ)) && spin--) {}
+            while ((p->tfd & (HBA_PxTFD_BSY | HBA_PxTFD_DRQ)) && spin--) { asm volatile ("hlt"); }
             if (p->tfd & (HBA_PxTFD_BSY | HBA_PxTFD_DRQ)) {
                 ERROR("AHCI: Port %u busy before WRITE DMA (TFD=0x%08x)", ctx->port_no, p->tfd);
                 return false;
@@ -410,6 +413,7 @@ static bool ahci_blk_write(struct BlockDevice* bdev, uint64_t lba, uint32_t coun
                     ERROR("AHCI: TFES error on WRITE port %u (IS=0x%08x TFD=0x%08x)", ctx->port_no, p->is, p->tfd);
                     return false;
                 }
+                asm volatile ("pause"); 
             }
             ctx->irq_events = 0;
             if (p->ci & 1u) {
@@ -445,7 +449,7 @@ static bool ahci_atapi_packet_cmd(ahci_port_ctx_t* ctx, const uint8_t* cdb, uint
     // Wait if busy
     {
         uint32_t spin = 1000000;
-        while ((p->tfd & (HBA_PxTFD_BSY | HBA_PxTFD_DRQ)) && spin--) {}
+        while ((p->tfd & (HBA_PxTFD_BSY | HBA_PxTFD_DRQ)) && spin--) { asm volatile ("pause"); }
         if (p->tfd & (HBA_PxTFD_BSY | HBA_PxTFD_DRQ)) {
             ERROR("AHCI: ATAPI busy before PACKET (TFD=0x%08x)", p->tfd);
             return false;
@@ -504,6 +508,7 @@ static bool ahci_atapi_packet_cmd(ahci_port_ctx_t* ctx, const uint8_t* cdb, uint
                 WARN("AHCI: ATAPI TFES (IS=0x%08x TFD=0x%08x)", p->is, p->tfd);
                 return false;
             }
+            asm volatile ("pause");
         }
         ctx->irq_events = 0;
         if (p->ci & 1u) {
@@ -574,6 +579,7 @@ static bool ahci_atapi_blk_read(struct BlockDevice* bdev, uint64_t lba, uint32_t
         uint32_t n = (count > 16) ? 16 : count; // limit chunk size
         if (!ahci_atapi_read_blocks(ctx, (uint32_t)lba, n, out)) return false;
         lba += n; out += n * 2048; count -= n;
+        asm volatile ("pause"); 
     }
     return true;
 }
@@ -591,7 +597,7 @@ static bool ahci_identify_ata(ahci_port_ctx_t* ctx, uint16_t* id512)
     // Wait if busy
     {
         uint32_t spin = 1000000;
-        while ((p->tfd & (HBA_PxTFD_BSY | HBA_PxTFD_DRQ)) && spin--) {}
+        while ((p->tfd & (HBA_PxTFD_BSY | HBA_PxTFD_DRQ)) && spin--) { asm volatile ("hlt"); }
         if (p->tfd & (HBA_PxTFD_BSY | HBA_PxTFD_DRQ)) return false;
     }
 
@@ -629,6 +635,7 @@ static bool ahci_identify_ata(ahci_port_ctx_t* ctx, uint16_t* id512)
     while (spin--) {
         if ((p->ci & 1u) == 0) break;
         if (p->is & HBA_PxIS_TFES) return false;
+        asm volatile ("pause"); 
     }
     if (p->ci & 1u) return false;
     return true;
@@ -684,7 +691,7 @@ static void ahci_probe_controller(void)
         hba->bohc |= HBA_BOHC_OOS;
         // Spec allows BIOS up to 1 second typically; we spin bounded
         uint32_t spin = 5000000; // ~ a few ms worth of MMIO polls
-        while ((hba->bohc & HBA_BOHC_BOS) && spin--) {}
+        while ((hba->bohc & HBA_BOHC_BOS) && spin--) { asm volatile ("hlt"); }
         if (hba->bohc & HBA_BOHC_BOS) {
             WARN("AHCI: BIOS did not release ownership; continuing anyway");
         } else {
@@ -708,7 +715,7 @@ static void ahci_probe_controller(void)
         s_ahci_irq_line = irq_line;
         extern void ahci_isr_stub(void);
         irq_controller->register_handler(irq_line, ahci_isr_stub);
-        irq_controller->enable(irq_line);
+        irq_controller->disable(irq_line);
         LOG("AHCI: Registered IRQ handler on IRQ%u", irq_line);
     } else {
         WARN("AHCI: No legacy IRQ line reported; continuing with polling");
@@ -731,7 +738,7 @@ static void ahci_probe_controller(void)
 
         // Issue COMRESET and wait a bit for device detection
         ahci_port_comreset(p);
-        for (volatile int dly = 0; dly < 100000; ++dly) (void)p->ssts; // small settle
+        for (volatile int dly = 0; dly < 100000; ++dly) asm volatile ("pause"); // small settle
 
         uint32_t ssts = p->ssts;
         uint8_t det = (uint8_t)(ssts & HBA_SSTS_DET_MASK);

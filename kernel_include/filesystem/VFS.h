@@ -16,12 +16,14 @@ struct VFSHandle;
 struct VFSFileSystem;
 struct VFSMount;
 struct BlockDevice;
+struct Volume;
 
 typedef struct VFSNode VFSNode;
 typedef struct VFSHandle VFSHandle;
 typedef struct VFSFileSystem VFSFileSystem;
 typedef struct VFSMount VFSMount;
 typedef struct BlockDevice BlockDevice;
+typedef struct Volume Volume;
 typedef VFSHandle* VFS_HANDLE;
 
 typedef enum VFSNodeType {
@@ -88,6 +90,7 @@ typedef struct VFSNodeInfo {
 typedef struct VFSMountParams {
     const char* source;         // Optional source descriptor (path, label, etc.)
     BlockDevice* block_device;  // Optional backing block device
+    Volume* volume;             // Optional logical volume/partition
     void* context;              // Driver-specific pointer
     uint32_t flags;             // Mount flags (driver-defined)
 } VFSMountParams;
@@ -106,6 +109,7 @@ typedef struct VFSNodeOps {
 } VFSNodeOps;
 
 typedef struct VFSFileSystemOps {
+    bool      (*probe)(VFSFileSystem* fs, const VFSMountParams* params);
     VFSResult (*mount)(VFSFileSystem* fs, const VFSMountParams* params, VFSNode** out_root);
     VFSResult (*unmount)(VFSFileSystem* fs, VFSNode* root);
 } VFSFileSystemOps;
@@ -142,6 +146,8 @@ VFSFileSystem* VFS_GetFileSystem(const char* name);
 
 // Mount management
 VFSMount*  VFS_Mount(const char* target, VFSFileSystem* fs, const VFSMountParams* params);
+VFSMount*  VFS_MountAuto(const char* target, const VFSMountParams* params);
+VFSFileSystem* VFS_DetectFileSystem(const VFSMountParams* params);
 VFSResult  VFS_Unmount(const char* target);
 VFSMount*  VFS_GetMount(const char* target);
 VFSNode*   VFS_GetMountRoot(VFSMount* mount);

@@ -12,6 +12,11 @@
 #include <time/timer.h>
 #include <stream/OutputStream.h>
 #include <task/PeriodicTask.h>
+#include <graphics/gfx.h>
+#include <list.h>
+#include <graphics/screen.h>
+#include <gfxterm/gfxterm.h>
+#include <sleep.h>
 
 #define MODERN_HARDWARE
 
@@ -35,6 +40,8 @@ extern DebugStream uartDebugStream;
 extern OutputStream dbgGFXTermStream;
 extern OutputStream genericOutputStream;
 extern OutputStream uartOutputStream;
+
+extern GFXTerminal *debug_terminal;
 
 extern void multiboot2_parse();
 extern void pmm_init();
@@ -129,20 +136,19 @@ void __boot_kernel_start(void)
     }
 
     // System tick: prefer HPET if available, else PIT
-#ifdef MODERN_HARDWARE
-    if (hpet_supported()) {
-        LOG("HPET supported – using HPET for system tick");
-        system_driver_register(&hpet_driver);
-        system_driver_enable(&hpet_driver);
-    } else 
-#endif
+// #ifdef MODERN_HARDWARE
+//     if (hpet_supported()) {
+//         LOG("HPET supported – using HPET for system tick");
+//         system_driver_register(&hpet_driver);
+//         system_driver_enable(&hpet_driver);
+//     } else 
+// #endif
     {
         LOG("HPET not available – falling back to PIT");
         system_driver_register(&pit_driver);
         system_driver_enable(&pit_driver);
+        irq_controller->acknowledge(0); // Acknowledge IRQ0 (PIT)
     }
-
-    irq_controller->acknowledge(0); // Acknowledge IRQ0 (PIT)
 
     asm volatile ("sti"); // Enable interrupts
 
@@ -196,4 +202,34 @@ void __boot_kernel_start(void)
 
     system_driver_register(&ata_driver);
     system_driver_enable(&ata_driver);
+
+    ScreenVideoModeInfo* best = List_GetAt(main_screen.video_modes, 0);
+    LOG("Current video mode: %ux%u, %u bpp", main_screen.mode->width, main_screen.mode->height, main_screen.mode->bpp);
+
+    for (ListNode* node = main_screen.video_modes->head; node != NULL; node = node->next)
+    {
+        ScreenVideoModeInfo* mode = (ScreenVideoModeInfo*)node->data;
+        if (mode->width >= 1920 || mode->height >= 1080)
+            continue; // Skip modes larger than 1080p
+        if (mode->width >= best->width || mode->height >= best->height)
+        {
+            best = mode;
+        }
+        if (mode->width > best->width && mode->height > best->height)
+        {
+            best = mode;
+        }
+    }
+
+    LOG("Changing video mode...");
+    LOG("Best mode found: %ux%u, %u bpp", best->width, best->height, best->bpp);
+
+    sleep_ms(3000); // Give some time for the debug terminal to initialize properly
+
+    screen_changeVideoMode(&main_screen, best);
+    gfxterm_resize(debug_terminal, (gfx_size){best->width / debug_terminal->font->size.width, best->height / debug_terminal->font->size.height});
+    gfxterm_clear(debug_terminal);
+
+    LOG("Selected video mode: %ux%u, %u bpp", best->width, best->height, best->bpp);
+
 }

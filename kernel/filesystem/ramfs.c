@@ -18,6 +18,7 @@ typedef struct RamFS {
 
 static VFSResult ramfs_mount(VFSFileSystem* fs, const VFSMountParams* params, VFSNode** out_root);
 static VFSResult ramfs_unmount(VFSFileSystem* fs, VFSNode* root);
+static bool ramfs_probe(VFSFileSystem* fs, const VFSMountParams* params);
 
 static VFSResult ramfs_open(VFSNode* node, uint32_t mode, void** out_handle);
 static VFSResult ramfs_close(VFSNode* node, void* handle);
@@ -44,6 +45,7 @@ static const VFSNodeOps s_ramfs_node_ops = {
 };
 
 static const VFSFileSystemOps s_ramfs_ops = {
+    .probe   = ramfs_probe,
     .mount   = ramfs_mount,
     .unmount = ramfs_unmount,
 };
@@ -178,6 +180,16 @@ static VFSResult ramfs_unmount(VFSFileSystem* fs, VFSNode* root)
     (void)fs;
     ramfs_free_node(root);
     return VFS_RES_OK;
+}
+
+static bool ramfs_probe(VFSFileSystem* fs, const VFSMountParams* params)
+{
+    (void)fs;
+    if (!params)
+        return false;
+    if (params->block_device || params->volume)
+        return false;
+    return true;
 }
 
 static VFSResult ramfs_open(VFSNode* node, uint32_t mode, void** out_handle)
@@ -406,4 +418,3 @@ void RamFS_Destroy(VFSFileSystem* vfs_fs)
     if (fs->label) free(fs->label);
     free(fs);
 }
-

@@ -191,6 +191,18 @@ static uint8_t ps2_kbd_getScanCodeSet()
     sleep_ms(1);
 
     uint8_t current = 0xFF;
+
+    if (ps2_read_kbd(&current, 250))
+    {
+        LOG("PS/2 Keyboard: acknowledge did not arrived ( timeout )");
+    }
+
+    // Test for ack
+    if (current != 0xFA)
+    {
+        return current;
+    }
+    
     if (ps2_read_kbd(&current, 250)) {
         return current;
     }

@@ -999,63 +999,76 @@ void gfxterm_resize(GFXTerminal *term, gfx_size newSizeInChars)
         size_t cap_lines = old_blocks_count * SB_BLOCK_LINES;
         size_t newW = term->terminalSize.width;
         if (newW == 0) newW = 1;
-        for (size_t i = 0; i < old_scrollback_count; ++i) {
-            size_t ring_index = (old_scrollback_start + i) % cap_lines;
-            size_t bi = ring_index / SB_BLOCK_LINES;
-            size_t li = ring_index % SB_BLOCK_LINES;
-            char* src_c = blocks[bi].chars + li * oldW;
-            gfx_color* src_fg = blocks[bi].fg + li * oldW;
-            gfx_color* src_bg = blocks[bi].bg + li * oldW;
+        char* tmp_chars = newW ? (char*)malloc(newW) : NULL;
+        gfx_color* tmp_fg = newW ? (gfx_color*)malloc(newW * sizeof(gfx_color)) : NULL;
+        gfx_color* tmp_bg = newW ? (gfx_color*)malloc(newW * sizeof(gfx_color)) : NULL;
 
-            // Split and push into new width lines, padding spaces at end
-            size_t off = 0;
-            while (off < oldW) {
-                size_t chunk = newW;
-                char* out_c = (char*)malloc(newW);
-                gfx_color* out_fg = (gfx_color*)malloc(newW * sizeof(gfx_color));
-                gfx_color* out_bg = (gfx_color*)malloc(newW * sizeof(gfx_color));
-                // preset
-                for (size_t x = 0; x < newW; ++x) {
-                    out_c[x] = ' ';
-                    out_fg[x] = term->fgColor;
-                    out_bg[x] = term->bgColor;
+        if (!tmp_chars) {
+            WARN("Failed to allocate temporary buffer for scrollback migration");
+        } else {
+            for (size_t i = 0; i < old_scrollback_count; ++i) {
+                size_t ring_index = (old_scrollback_start + i) % cap_lines;
+                size_t bi = ring_index / SB_BLOCK_LINES;
+                size_t li = ring_index % SB_BLOCK_LINES;
+                char* src_c = blocks[bi].chars + li * oldW;
+                gfx_color* src_fg = blocks[bi].fg ? (blocks[bi].fg + li * oldW) : NULL;
+                gfx_color* src_bg = blocks[bi].bg ? (blocks[bi].bg + li * oldW) : NULL;
+
+                // Split and push into new width lines, padding spaces at end
+                size_t off = 0;
+                while (off < oldW) {
+                    size_t chunk = newW;
+                    size_t remain = oldW - off;
+                    if (chunk > remain) chunk = remain;
+
+                    memset(tmp_chars, ' ', newW);
+                    if (tmp_fg) {
+                        for (size_t x = 0; x < newW; ++x) tmp_fg[x] = term->fgColor;
+                    }
+                    if (tmp_bg) {
+                        for (size_t x = 0; x < newW; ++x) tmp_bg[x] = term->bgColor;
+                    }
+
+                    memcpy(tmp_chars, src_c + off, chunk);
+                    if (tmp_fg && src_fg) memcpy(tmp_fg, src_fg + off, chunk * sizeof(gfx_color));
+                    if (tmp_bg && src_bg) memcpy(tmp_bg, src_bg + off, chunk * sizeof(gfx_color));
+
+                    __sb_push_line(term, tmp_chars, tmp_fg, tmp_bg);
+                    off += chunk;
                 }
-                size_t remain = oldW - off;
-                if (chunk > remain) chunk = remain;
-                memcpy(out_c, src_c + off, chunk);
-                memcpy(out_fg, src_fg + off, chunk * sizeof(gfx_color));
-                memcpy(out_bg, src_bg + off, chunk * sizeof(gfx_color));
-                __sb_push_line(term, out_c, out_fg, out_bg);
-                off += chunk;
             }
         }
+
+        if (tmp_chars) free(tmp_chars);
+        if (tmp_fg) free(tmp_fg);
+        if (tmp_bg) free(tmp_bg);
     }
 
     // Migrate: append old visible buffer lines to the new scrollback (treat them as newest)
     if (oldBuf && oldW && oldH) {
         size_t newW = term->terminalSize.width;
         if (newW == 0) newW = 1;
-        for (size_t y = 0; y < oldH; ++y) {
-            char* src_c = oldBuf + y * oldW;
-            size_t off = 0;
-            while (off < oldW) {
-                size_t chunk = newW;
-                char* out_c = (char*)malloc(newW);
-                gfx_color* out_fg = (gfx_color*)malloc(newW * sizeof(gfx_color));
-                gfx_color* out_bg = (gfx_color*)malloc(newW * sizeof(gfx_color));
-                for (size_t x = 0; x < newW; ++x) {
-                    out_c[x] = ' ';
-                    out_fg[x] = term->fgColor;
-                    out_bg[x] = term->bgColor;
+        char* tmp_chars = newW ? (char*)malloc(newW) : NULL;
+        if (!tmp_chars) {
+            WARN("Failed to allocate temporary buffer for visible content migration");
+        } else {
+            for (size_t y = 0; y < oldH; ++y) {
+                char* src_c = oldBuf + y * oldW;
+                size_t off = 0;
+                while (off < oldW) {
+                    size_t chunk = newW;
+                    size_t remain = oldW - off;
+                    if (chunk > remain) chunk = remain;
+
+                    memset(tmp_chars, ' ', newW);
+                    memcpy(tmp_chars, src_c + off, chunk);
+                    // We don't preserve per-cell attrs from the live grid (simplify); keep global fg/bg
+                    __sb_push_line(term, tmp_chars, NULL, NULL);
+                    off += chunk;
                 }
-                size_t remain = oldW - off;
-                if (chunk > remain) chunk = remain;
-                memcpy(out_c, src_c + off, chunk);
-                // We don't preserve per-cell attrs from the live grid (simplify); keep global fg/bg
-                __sb_push_line(term, out_c, out_fg, out_bg);
-                off += chunk;
             }
         }
+        if (tmp_chars) free(tmp_chars);
         // oldBuf no longer needed
         free(oldBuf);
     }
@@ -1110,8 +1123,8 @@ void gfxterm_redraw(GFXTerminal *term)
 
     // Clear framebuffer once
     gfx_fill_rectangle(term->framebuffer, 0, 0,
-                       term->framebuffer->size.width,
-                       term->framebuffer->size.height,
+                       (int)term->framebuffer->size.width,
+                       (int)term->framebuffer->size.height,
                        term->bgColor);
 
     size_t w = term->terminalSize.width;
