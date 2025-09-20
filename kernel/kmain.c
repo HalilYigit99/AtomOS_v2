@@ -24,6 +24,7 @@
 #include <filesystem/ntfs.h>
 #include <util/convert.h>
 #include <util/string.h>
+#include <stream/FileStream.h>
 #include <stdint.h>
 
 void gfx_draw_task();
@@ -41,137 +42,61 @@ extern void efi_reset_to_firmware();
 extern void FAT_Test_Run(void);
 extern void VFS_RamFSTest_Run(void);
 
-static void log_directory_recursive(VFSNode* dir, int depth)
+static void logDirectoryContents(char* path)
 {
-    if (!dir) return;
-
-    char indent[64];
-    int pad = depth * 2;
-    if (pad >= (int)sizeof(indent)) pad = (int)sizeof(indent) - 1;
-    memset(indent, ' ', (size_t)pad);
-    indent[pad] = '\0';
-
-    VFSDirEntry entry;
-    for (size_t idx = 0;; ++idx)
+    List* rootDirContents = VFS_GetDirectoryContents(path);
+    if (rootDirContents)
     {
-        VFSResult res = VFS_ReadDir(dir, idx, &entry);
-        if (res != VFS_RES_OK)
-            break;
-
-        if (strcmp(entry.name, ".") == 0 || strcmp(entry.name, "..") == 0)
-            continue;
-
-        LOG("%s%s (%s)", indent, entry.name,
-            entry.type == VFS_NODE_DIRECTORY ? "dir" : "file");
-
-        if (entry.type == VFS_NODE_DIRECTORY)
+        LOG("'%s' contents:", path);
+        for (ListNode* node = rootDirContents->head; node != NULL; node = node->next)
         {
-            VFSNode* child = NULL;
-            if (VFS_ResolveAt(dir, entry.name, &child, true) == VFS_RES_OK && child)
-            {
-                if (depth - 1) log_directory_recursive(child, depth - 1);
-            }
+            char* name = (char*)node->data;
+            LOG(" - %s", name);
         }
+    }
+    else
+    {
+        LOG("Failed to get '%s' contents", path);
     }
 }
 
 void kmain()
 {
+    LOG("AtomOS Kernel Main Function Started");
 
-    VFS_Init();
-    FATFS_Register();
-    NTFS_Register();
-    ISO9660_Register();
+    // List '/' directory
+    logDirectoryContents("/");
 
-    VolumeManager_Init();
-    VolumeManager_Rebuild();
+    // List '/mnt' directory
+    logDirectoryContents("/mnt");
 
-    char mounted_path_buf[128];
-    mounted_path_buf[0] = '\0';
-    const char* mounted_path = NULL;
-    VFSMount* active_mount = NULL;
+    // List '/mnt/sd1' directory
+    logDirectoryContents("/mnt/cd0");
 
-    size_t volume_count = VolumeManager_Count();
-    for (size_t i = 0; i < volume_count; ++i)
+    // Open test file
+    FileStream* file = VFS_OpenFileStream("/mnt/cd0/hello.txt", 0);
+    if (file)
     {
-        Volume* volume = VolumeManager_GetAt(i);
-        if (!volume) continue;
-
-        const char* vol_name = Volume_Name(volume);
-        if (!vol_name || !vol_name[0])
-            vol_name = "volume";
-
-        char mount_path[128];
-        strcpy(mount_path, "/mnt/");
-        size_t base_len = strlen(mount_path);
-        size_t remaining = sizeof(mount_path) - base_len - 1;
-        if (remaining > 0)
-        {
-            size_t copy_len = strlen(vol_name);
-            if (copy_len > remaining) copy_len = remaining;
-            memcpy(mount_path + base_len, vol_name, copy_len);
-            mount_path[base_len + copy_len] = '\0';
-        }
-
-        for (char* p = mount_path + base_len; *p; ++p)
-        {
-            if (*p == '/') *p = '_';
-        }
-
-        VFSMountParams params = {
-            .source = Volume_Name(volume),
-            .block_device = volume->device,
-            .volume = volume,
-            .context = NULL,
-            .flags = 0,
-        };
-
-        VFSMount* mount = VFS_MountAuto(mount_path, &params);
-        if (mount)
-        {
-            strcpy(mounted_path_buf, mount_path);
-            mounted_path = mounted_path_buf;
-            active_mount = mount;
-            break;
-        }
+        LOG("Opened /mnt/cd0/hello.txt");
+    }else 
+    {
+        LOG("Failed to open /mnt/cd0/hello.txt");
     }
 
-    if (active_mount && mounted_path)
+    // Read test file
+    if (file)
     {
-        VFSNode* root_node = VFS_GetMountRoot(active_mount);
-        if (root_node)
+        char buffer[128];
+        int bytesRead = FileStream_Read(file, buffer, sizeof(buffer) - 1);
+        if (bytesRead > 0)
         {
-            LOG("Listing contents of %s:", mounted_path);
-            log_directory_recursive(root_node, 2);
-        }
-
-        char file_path[256];
-        strcpy(file_path, mounted_path);
-        strcat(file_path, "/hello.txt");
-
-        VFS_HANDLE file = VFS_Open(file_path, VFS_OPEN_READ);
-        if (file)
-        {
-            void* buffer = calloc(4096, 1);
-            int64_t read_bytes = VFS_Read(file, buffer, 4096);
-
-            LOG("%s: ", file_path);
-            size_t dump_len = (read_bytes > 0)
-                              ? ((size_t)read_bytes < 4096 ? (size_t)read_bytes : 4096)
-                              : 0;
-            dumpHex8(buffer, 8, 8, dump_len, currentOutputStream);
-
-            VFS_Close(file);
-            free(buffer);
+            buffer[bytesRead] = '\0'; // Null-terminate the string
+            LOG("Read %d bytes from /mnt/cd0/hello.txt:", bytesRead);
+            LOG("%s", buffer);
         }
         else
         {
-            WARN("Failed to open %s", file_path);
+            LOG("Failed to read from /mnt/cd0/hello.txt");
         }
     }
-    else
-    {
-        WARN("No FAT or NTFS volume could be mounted");
-    }
-
 }

@@ -329,6 +329,8 @@ static bool ps2kbd_init(void) {
     // 7) Ensure scanning disabled while configuring
     (void)ps2_kbd_send_expect_ack(PS2_KBD_CMD_DISABLE);
 
+    ps2_flush_output();
+
     // 8) Set scancode set 2 and verify with small retry loop
     for (scancodeSetRetryCount = 0; scancodeSetRetryCount < 3 && !scancodeSetCorrect; ++scancodeSetRetryCount) {
         ps2_kbd_setScanCodeSet(2);

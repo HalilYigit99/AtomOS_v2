@@ -51,6 +51,77 @@ static void list_directory(const char *path)
 }
 
 static bool initialized = false;
+static size_t s_saved_cache_capacity = 0;
+static bool s_cache_capacity_saved = false;
+
+static void log_cache_stats(const char* label)
+{
+    VFSCacheStats stats;
+    VFS_CacheGetStats(&stats);
+    LOG("cache[%s]: hits=%zu misses=%zu entries=%zu capacity=%zu",
+        label ? label : "?",
+        stats.hits,
+        stats.misses,
+        stats.entries,
+        stats.capacity);
+}
+
+static void exercise_cache_demo(void)
+{
+    VFSCacheStats stats;
+    VFS_CacheGetStats(&stats);
+    if (!s_cache_capacity_saved)
+    {
+        s_saved_cache_capacity = stats.capacity;
+        s_cache_capacity_saved = true;
+    }
+
+    VFS_CacheFlush();
+    VFS_CacheResetStats();
+    VFS_CacheSetCapacity(4);
+    log_cache_stats("after-reset");
+
+    VFSNode* node = NULL;
+    VFSCacheStats before;
+    VFS_CacheGetStats(&before);
+
+    if (VFS_Resolve("/ramfs-demo", &node) == VFS_RES_OK && node)
+    {
+        LOG("cache-demo: resolved /ramfs-demo (node=%s)", VFS_NodeName(node) ? VFS_NodeName(node) : "<root>");
+    }
+    if (VFS_Resolve("/ramfs-demo", &node) == VFS_RES_OK && node)
+    {
+        LOG("cache-demo: resolved /ramfs-demo (second lookup)");
+    }
+    if (VFS_Resolve("/ramfs-demo/tmp", &node) == VFS_RES_OK && node)
+    {
+        LOG("cache-demo: resolved /ramfs-demo/tmp");
+    }
+
+    VFSCacheStats after;
+    VFS_CacheGetStats(&after);
+    size_t hits_delta = (after.hits >= before.hits) ? (after.hits - before.hits) : 0;
+    size_t miss_delta = (after.misses >= before.misses) ? (after.misses - before.misses) : 0;
+    LOG("cache lookups: +hits=%zu +misses=%zu", hits_delta, miss_delta);
+    log_cache_stats("after-lookups");
+
+    VFS_CacheFlush();
+    log_cache_stats("after-flush");
+
+    VFS_CacheSetCapacity(0);
+    VFS_CacheResetStats();
+    node = NULL;
+    VFS_Resolve("/ramfs-demo", &node);
+    VFS_Resolve("/ramfs-demo", &node);
+    log_cache_stats("disabled");
+
+    if (s_cache_capacity_saved)
+    {
+        VFS_CacheSetCapacity(s_saved_cache_capacity);
+    }
+    VFS_CacheFlush();
+    VFS_CacheResetStats();
+}
 
 void VFS_RamFSTest_Run(void)
 {
@@ -111,6 +182,8 @@ void VFS_RamFSTest_Run(void)
 
     list_directory("/ramfs-demo");
     list_directory("/ramfs-demo/tmp");
+
+    exercise_cache_demo();
 
     log_result("remove /ramfs-demo/tmp/info.txt", VFS_Remove("/ramfs-demo/tmp/info.txt"));
     log_result("remove /ramfs-demo/tmp", VFS_Remove("/ramfs-demo/tmp"));

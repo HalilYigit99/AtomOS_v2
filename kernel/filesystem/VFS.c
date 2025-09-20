@@ -3,8 +3,10 @@
 #include <memory/memory.h>
 #include <util/string.h>
 #include <debug/debug.h>
+#include <stream/FileStream.h>
 
 #define VFS_MAX_SEGMENTS (VFS_PATH_MAX / 2)
+#define VFS_DEFAULT_CACHE_CAPACITY 128
 
 struct VFSMount {
     char* path;
@@ -18,6 +20,27 @@ static List* s_filesystems = NULL;
 static List* s_mounts = NULL;
 static VFSMount* s_root_mount = NULL;
 
+typedef struct VFSCacheEntry {
+    char* path;
+    VFSNode* node;
+} VFSCacheEntry;
+
+static List* s_cache_entries = NULL;
+static size_t s_cache_capacity = VFS_DEFAULT_CACHE_CAPACITY;
+static size_t s_cache_hits = 0;
+static size_t s_cache_misses = 0;
+
+static bool vfs_cache_init(void);
+static void vfs_cache_cleanup_entry(VFSCacheEntry* entry);
+static void vfs_cache_clear(void);
+static void vfs_cache_trim_to_capacity(void);
+static void vfs_cache_remove_prefix(const char* normalized_prefix);
+static void vfs_cache_remove_exact(const char* normalized_path);
+static VFSNode* vfs_cache_lookup(const char* normalized_path);
+static void vfs_cache_insert(const char* normalized_path, VFSNode* node);
+static bool vfs_cache_path_is_under(const char* path, const char* prefix);
+static bool vfs_cache_enabled(void);
+
 static VFSResult vfs_normalize_path(const char* path, char* out_path, size_t out_size);
 static VFSMount* vfs_select_mount(const char* normalized_path);
 static VFSResult vfs_walk(VFSNode* start, const char* relative_path, VFSNode** out_node, bool follow_last_link);
@@ -30,6 +53,179 @@ static void vfs_attach_mount_to_tree(VFSMount* mount)
     mount->root->parent = NULL;
 }
 
+static bool vfs_cache_enabled(void)
+{
+    return s_cache_entries && s_cache_capacity > 0;
+}
+
+static bool vfs_cache_init(void)
+{
+    if (s_cache_entries)
+        return true;
+
+    s_cache_entries = List_Create();
+    return s_cache_entries != NULL;
+}
+
+static void vfs_cache_cleanup_entry(VFSCacheEntry* entry)
+{
+    if (!entry) return;
+    if (entry->path) free(entry->path);
+    free(entry);
+}
+
+static void vfs_cache_clear(void)
+{
+    if (!s_cache_entries) return;
+
+    while (!List_IsEmpty(s_cache_entries))
+    {
+        VFSCacheEntry* entry = (VFSCacheEntry*)List_GetAt(s_cache_entries, 0);
+        if (entry) vfs_cache_cleanup_entry(entry);
+        List_RemoveAt(s_cache_entries, 0);
+    }
+}
+
+static void vfs_cache_trim_to_capacity(void)
+{
+    if (!s_cache_entries) return;
+
+    if (s_cache_capacity == 0)
+    {
+        vfs_cache_clear();
+        return;
+    }
+
+    while (List_Size(s_cache_entries) > s_cache_capacity)
+    {
+        size_t tail_index = List_Size(s_cache_entries) - 1;
+        VFSCacheEntry* tail = (VFSCacheEntry*)List_GetAt(s_cache_entries, tail_index);
+        if (tail) vfs_cache_cleanup_entry(tail);
+        List_RemoveAt(s_cache_entries, tail_index);
+    }
+}
+
+static bool vfs_cache_path_is_under(const char* path, const char* prefix)
+{
+    if (!path || !prefix) return false;
+
+    size_t prefix_len = strlen(prefix);
+    if (prefix_len == 0) return false;
+
+    if (strncmp(path, prefix, prefix_len) != 0)
+        return false;
+
+    if (path[prefix_len] == '\0')
+        return true;
+
+    if (prefix[prefix_len - 1] == '/')
+        return true;
+
+    return path[prefix_len] == '/';
+}
+
+static void vfs_cache_remove_prefix(const char* normalized_prefix)
+{
+    if (!s_cache_entries || !normalized_prefix) return;
+    if (List_IsEmpty(s_cache_entries)) return;
+
+    size_t index = 0;
+    while (index < List_Size(s_cache_entries))
+    {
+        VFSCacheEntry* entry = (VFSCacheEntry*)List_GetAt(s_cache_entries, index);
+        if (!entry || !entry->path || !vfs_cache_path_is_under(entry->path, normalized_prefix))
+        {
+            ++index;
+            continue;
+        }
+
+        vfs_cache_cleanup_entry(entry);
+        List_RemoveAt(s_cache_entries, index);
+    }
+}
+
+static void vfs_cache_remove_exact(const char* normalized_path)
+{
+    if (!s_cache_entries || !normalized_path) return;
+
+    size_t index = 0;
+    for (ListNode* it = List_Foreach_Begin(s_cache_entries); it; it = List_Foreach_Next(it), ++index)
+    {
+        VFSCacheEntry* entry = (VFSCacheEntry*)List_Foreach_Data(it);
+        if (entry && entry->path && strcmp(entry->path, normalized_path) == 0)
+        {
+            vfs_cache_cleanup_entry(entry);
+            List_RemoveAt(s_cache_entries, index);
+            return;
+        }
+    }
+}
+
+static VFSNode* vfs_cache_lookup(const char* normalized_path)
+{
+    if (!normalized_path) return NULL;
+    if (!vfs_cache_enabled()) return NULL;
+
+    size_t index = 0;
+    for (ListNode* it = List_Foreach_Begin(s_cache_entries); it; it = List_Foreach_Next(it), ++index)
+    {
+        VFSCacheEntry* entry = (VFSCacheEntry*)List_Foreach_Data(it);
+        if (!entry || !entry->path) continue;
+        if (strcmp(entry->path, normalized_path) != 0) continue;
+
+        if (index != 0)
+        {
+            List_RemoveAt(s_cache_entries, index);
+            List_InsertAt(s_cache_entries, 0, entry);
+        }
+
+        s_cache_hits++;
+        return entry->node;
+    }
+
+    s_cache_misses++;
+    return NULL;
+}
+
+static void vfs_cache_insert(const char* normalized_path, VFSNode* node)
+{
+    if (!normalized_path || !node) return;
+    if (!vfs_cache_enabled()) return;
+
+    size_t index = 0;
+    for (ListNode* it = List_Foreach_Begin(s_cache_entries); it; it = List_Foreach_Next(it), ++index)
+    {
+        VFSCacheEntry* entry = (VFSCacheEntry*)List_Foreach_Data(it);
+        if (!entry || !entry->path) continue;
+        if (strcmp(entry->path, normalized_path) != 0) continue;
+
+        vfs_cache_cleanup_entry(entry);
+        List_RemoveAt(s_cache_entries, index);
+        break;
+    }
+
+    if (List_Size(s_cache_entries) >= s_cache_capacity)
+    {
+        size_t tail_index = List_Size(s_cache_entries) - 1;
+        VFSCacheEntry* tail = (VFSCacheEntry*)List_GetAt(s_cache_entries, tail_index);
+        if (tail) vfs_cache_cleanup_entry(tail);
+        List_RemoveAt(s_cache_entries, tail_index);
+    }
+
+    VFSCacheEntry* entry = (VFSCacheEntry*)malloc(sizeof(VFSCacheEntry));
+    if (!entry) return;
+
+    entry->path = strdup(normalized_path);
+    if (!entry->path)
+    {
+        free(entry);
+        return;
+    }
+
+    entry->node = node;
+    List_InsertAt(s_cache_entries, 0, entry);
+}
+
 void VFS_Init(void)
 {
     if (s_vfs_initialized) return;
@@ -40,6 +236,26 @@ void VFS_Init(void)
     if (!s_filesystems || !s_mounts)
     {
         ERROR("VFS_Init: failed to allocate lists");
+        if (s_filesystems)
+        {
+            List_Destroy(s_filesystems, false);
+            s_filesystems = NULL;
+        }
+        if (s_mounts)
+        {
+            List_Destroy(s_mounts, false);
+            s_mounts = NULL;
+        }
+        return;
+    }
+
+    if (!vfs_cache_init())
+    {
+        ERROR("VFS_Init: failed to initialize cache");
+        List_Destroy(s_filesystems, false);
+        List_Destroy(s_mounts, false);
+        s_filesystems = NULL;
+        s_mounts = NULL;
         return;
     }
 
@@ -49,6 +265,49 @@ void VFS_Init(void)
 bool VFS_IsInitialized(void)
 {
     return s_vfs_initialized;
+}
+
+void VFS_CacheFlush(void)
+{
+    if (!s_cache_entries) return;
+    vfs_cache_clear();
+}
+
+void VFS_CacheSetCapacity(size_t capacity)
+{
+    s_cache_capacity = capacity;
+    if (!s_cache_entries) return;
+
+    if (s_cache_capacity == 0)
+    {
+        vfs_cache_clear();
+        return;
+    }
+
+    vfs_cache_trim_to_capacity();
+}
+
+void VFS_CacheResetStats(void)
+{
+    s_cache_hits = 0;
+    s_cache_misses = 0;
+}
+
+void VFS_CacheGetStats(VFSCacheStats* out_stats)
+{
+    if (!out_stats) return;
+    out_stats->hits = s_cache_hits;
+    out_stats->misses = s_cache_misses;
+    out_stats->entries = s_cache_entries ? List_Size(s_cache_entries) : 0;
+    out_stats->capacity = s_cache_capacity;
+}
+
+void VFS_CacheDumpStats(void)
+{
+    VFSCacheStats stats;
+    VFS_CacheGetStats(&stats);
+    LOG("VFS cache: hits=%zu misses=%zu entries=%zu capacity=%zu",
+        stats.hits, stats.misses, stats.entries, stats.capacity);
 }
 
 VFSResult VFS_RegisterFileSystem(VFSFileSystem* fs)
@@ -153,6 +412,9 @@ VFSMount* VFS_Mount(const char* target, VFSFileSystem* fs, const VFSMountParams*
         s_root_mount = mount;
     }
 
+    vfs_cache_remove_prefix(mount->path);
+    vfs_cache_insert(mount->path, mount->root);
+
     LOG("VFS: mounted '%s' at '%s'", fs->name, mount->path);
     return mount;
 }
@@ -231,6 +493,7 @@ VFSResult VFS_Unmount(const char* target)
             free(mount->path);
             free(mount);
             List_RemoveAt(s_mounts, index);
+            vfs_cache_remove_prefix(normalized);
             return VFS_RES_OK;
         }
     }
@@ -270,6 +533,16 @@ VFSResult VFS_Resolve(const char* path, VFSNode** out_node)
     VFSResult norm_res = vfs_normalize_path(path, normalized, sizeof(normalized));
     if (norm_res != VFS_RES_OK) return norm_res;
 
+    if (out_node)
+    {
+        VFSNode* cached = vfs_cache_lookup(normalized);
+        if (cached)
+        {
+            *out_node = cached;
+            return VFS_RES_OK;
+        }
+    }
+
     VFSMount* mount = vfs_select_mount(normalized);
     if (!mount) return VFS_RES_NOT_FOUND;
 
@@ -289,10 +562,16 @@ VFSResult VFS_Resolve(const char* path, VFSNode** out_node)
     if (!*rel)
     {
         *out_node = mount->root;
+        vfs_cache_insert(normalized, mount->root);
         return VFS_RES_OK;
     }
 
-    return vfs_walk(mount->root, rel, out_node, true);
+    VFSResult walk_res = vfs_walk(mount->root, rel, out_node, true);
+    if (walk_res == VFS_RES_OK && out_node && *out_node)
+    {
+        vfs_cache_insert(normalized, *out_node);
+    }
+    return walk_res;
 }
 
 VFSResult VFS_ResolveAt(VFSNode* start, const char* path, VFSNode** out_node, bool follow_last_link)
@@ -517,6 +796,94 @@ VFSResult VFS_SeekHandle(VFS_HANDLE handle, int64_t offset, VFSSeekWhence whence
     return VFS_RES_OK;
 }
 
+struct FileStream* VFS_OpenFileStream(const char* path, uint32_t mode)
+{
+    return FileStream_Open(path, mode);
+}
+
+bool VFS_DirectoryExists(const char* path)
+{
+    if (!path) return false;
+
+    VFSNode* node = NULL;
+    if (VFS_Resolve(path, &node) != VFS_RES_OK)
+        return false;
+
+    return node && node->type == VFS_NODE_DIRECTORY;
+}
+
+bool VFS_FileExists(const char* path)
+{
+    if (!path) return false;
+
+    VFSNode* node = NULL;
+    if (VFS_Resolve(path, &node) != VFS_RES_OK)
+        return false;
+
+    if (!node)
+        return false;
+
+    return node->type == VFS_NODE_REGULAR || node->type == VFS_NODE_SYMLINK;
+}
+
+List* VFS_GetDirectoryContents(const char* path)
+{
+    if (!path)
+        return NULL;
+
+    VFSNode* directory = NULL;
+    if (VFS_Resolve(path, &directory) != VFS_RES_OK)
+        return NULL;
+
+    if (!directory || directory->type != VFS_NODE_DIRECTORY)
+        return NULL;
+
+    if (!directory->ops || !directory->ops->readdir)
+        return NULL;
+
+    List* contents = List_Create();
+    if (!contents)
+        return NULL;
+
+    size_t index = 0;
+    while (true)
+    {
+        VFSDirEntry* entry = (VFSDirEntry*)malloc(sizeof(VFSDirEntry));
+        if (!entry)
+        {
+            VFS_FreeDirectoryContents(contents);
+            return NULL;
+        }
+
+        VFSResult res = directory->ops->readdir(directory, NULL, index, entry);
+        if (res == VFS_RES_NOT_FOUND)
+        {
+            free(entry);
+            break;
+        }
+
+        if (res != VFS_RES_OK)
+        {
+            free(entry);
+            VFS_FreeDirectoryContents(contents);
+            return NULL;
+        }
+
+        List_Add(contents, entry);
+        ++index;
+    }
+
+    return contents;
+}
+
+void VFS_FreeDirectoryContents(List* contents)
+{
+    if (!contents)
+        return;
+
+    List_Destroy(contents, true);
+}
+
 static VFSResult vfs_normalize_path(const char* path, char* out_path, size_t out_size)
 {
     if (!path || !out_path || out_size == 0) return VFS_RES_INVALID;
@@ -730,6 +1097,8 @@ VFSResult VFS_Create(const char* path, VFSNodeType type)
     if (!parent->ops || !parent->ops->create)
         return VFS_RES_UNSUPPORTED;
 
+    vfs_cache_remove_exact(normalized);
+
     return parent->ops->create(parent, name, type, NULL);
 }
 
@@ -772,6 +1141,8 @@ VFSResult VFS_Remove(const char* path)
 
     if (!parent->ops || !parent->ops->remove)
         return VFS_RES_UNSUPPORTED;
+
+    vfs_cache_remove_prefix(normalized);
 
     return parent->ops->remove(parent, name);
 }

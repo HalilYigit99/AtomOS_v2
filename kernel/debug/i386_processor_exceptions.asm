@@ -1,7 +1,7 @@
 section .text
 
 ; (C code function)
-; void i386_processor_exceptions_handle(uint8_t exceptionNumber)
+; void i386_processor_exceptions_handle(uint8_t vector, const void* gp_regs, const void* cpu_frame, bool has_error_code)
 extern i386_processor_exceptions_handle
 
 global i386_exception_0_isr
@@ -46,34 +46,43 @@ use64
 i386_exception_%1_isr:
     cli
 
-    ; Save caller-saved + rbx for safety
-    push rax
-    push rbx
-    push rcx
-    push rdx
-    push rsi
-    push rdi
-    push r8
-    push r9
-    push r10
+    push r15
+    push r14
+    push r13
+    push r12
     push r11
+    push r10
+    push r9
+    push r8
+    push rdi
+    push rsi
+    push rbp
+    push rbx
+    push rdx
+    push rcx
+    push rax
 
-    ; Arg0 = exception number (uint8_t)
-    xor     edi, edi
-    mov     dil, %1
+    mov     edi, %1            ; arg0: vector
+    mov     rsi, rsp           ; arg1: gp register dump base
+    lea     rdx, [rsp + 15*8]  ; arg2: cpu frame start (RIP,...)
+    xor     ecx, ecx           ; arg3: has_error_code = false
     call    i386_processor_exceptions_handle
 
-    ; Restore registers
-    pop r11
-    pop r10
-    pop r9
-    pop r8
-    pop rdi
-    pop rsi
-    pop rdx
-    pop rcx
-    pop rbx
     pop rax
+    pop rcx
+    pop rdx
+    pop rbx
+    pop rbp
+    pop rsi
+    pop rdi
+    pop r8
+    pop r9
+    pop r10
+    pop r11
+    pop r12
+    pop r13
+    pop r14
+    pop r15
 
     sti
     iretq
@@ -84,34 +93,46 @@ i386_exception_%1_isr:
 i386_exception_%1_isr:
     cli
 
-    push rax
-    push rbx
-    push rcx
-    push rdx
-    push rsi
-    push rdi
-    push r8
-    push r9
-    push r10
+    push r15
+    push r14
+    push r13
+    push r12
     push r11
+    push r10
+    push r9
+    push r8
+    push rdi
+    push rsi
+    push rbp
+    push rbx
+    push rdx
+    push rcx
+    push rax
 
-    xor     edi, edi
-    mov     dil, %1
+    mov     edi, %1            ; arg0: vector
+    mov     rsi, rsp           ; arg1: gp register dump base
+    lea     rdx, [rsp + 15*8]  ; arg2: cpu frame start (error code + RIP,...)
+    mov     ecx, 1             ; arg3: has_error_code = true
     call    i386_processor_exceptions_handle
 
-    pop r11
-    pop r10
-    pop r9
-    pop r8
-    pop rdi
-    pop rsi
-    pop rdx
-    pop rcx
-    pop rbx
     pop rax
+    pop rcx
+    pop rdx
+    pop rbx
+    pop rbp
+    pop rsi
+    pop rdi
+    pop r8
+    pop r9
+    pop r10
+    pop r11
+    pop r12
+    pop r13
+    pop r14
+    pop r15
 
     sti
-    add rsp, 8        ; CPU'nun pushladığı error code'u at
+    add     rsp, 8             ; CPU'nun pushladığı error code'u at
     iretq
 %endmacro
 
@@ -158,9 +179,16 @@ i386_exception_%1_isr:
     cli
 
     pushad
-    push dword %1            ; arg0 (cdecl, caller cleans)
-    call i386_processor_exceptions_handle
-    add esp, 4               ; arg temizliği
+
+    mov     eax, esp         ; gp register dump base (EDI..EAX order)
+    lea     edx, [esp + 32]  ; cpu frame start (EIP, CS, ...)
+
+    push    dword 0          ; has_error_code = false
+    push    edx              ; cpu frame
+    push    eax              ; gp regs
+    push    dword %1         ; vector
+    call    i386_processor_exceptions_handle
+    add     esp, 16          ; clean up args
     popad
 
     sti
@@ -172,9 +200,16 @@ i386_exception_%1_isr:
     cli
 
     pushad
-    push dword %1
-    call i386_processor_exceptions_handle
-    add esp, 4               ; arg temizliği
+
+    mov     eax, esp
+    lea     edx, [esp + 32]
+
+    push    dword 1          ; has_error_code = true
+    push    edx              ; cpu frame (error code + ...)
+    push    eax              ; gp regs
+    push    dword %1
+    call    i386_processor_exceptions_handle
+    add     esp, 16
     popad
 
     add esp, 4               ; CPU'nun pushladığı error code'u at

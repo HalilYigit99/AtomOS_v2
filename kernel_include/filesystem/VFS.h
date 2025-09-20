@@ -17,6 +17,8 @@ struct VFSFileSystem;
 struct VFSMount;
 struct BlockDevice;
 struct Volume;
+struct FileStream;
+struct List;
 
 typedef struct VFSNode VFSNode;
 typedef struct VFSHandle VFSHandle;
@@ -25,6 +27,7 @@ typedef struct VFSMount VFSMount;
 typedef struct BlockDevice BlockDevice;
 typedef struct Volume Volume;
 typedef VFSHandle* VFS_HANDLE;
+typedef struct List List;
 
 typedef enum VFSNodeType {
     VFS_NODE_UNKNOWN = 0,
@@ -138,9 +141,21 @@ struct VFSHandle {
     uint64_t offset;
 };
 
+typedef struct VFSCacheStats {
+    size_t hits;
+    size_t misses;
+    size_t entries;
+    size_t capacity;
+} VFSCacheStats;
+
 // Initialization and registration
 void       VFS_Init(void);
 bool       VFS_IsInitialized(void);
+void       VFS_CacheFlush(void);
+void       VFS_CacheSetCapacity(size_t capacity);
+void       VFS_CacheResetStats(void);
+void       VFS_CacheGetStats(VFSCacheStats* out_stats);
+void       VFS_CacheDumpStats(void);
 VFSResult  VFS_RegisterFileSystem(VFSFileSystem* fs);
 VFSFileSystem* VFS_GetFileSystem(const char* name);
 
@@ -164,6 +179,10 @@ VFSResult   VFS_NodeStat(VFSNode* node, VFSNodeInfo* out_info);
 VFSResult   VFS_ReadDir(VFSNode* directory, size_t index, VFSDirEntry* out_entry);
 VFSResult   VFS_Create(const char* path, VFSNodeType type);
 VFSResult   VFS_Remove(const char* path);
+bool        VFS_DirectoryExists(const char* path);
+bool        VFS_FileExists(const char* path);
+List*       VFS_GetDirectoryContents(const char* path);
+void        VFS_FreeDirectoryContents(List* contents);
 
 // File handle operations
 VFS_HANDLE  VFS_Open(const char* path, uint32_t mode);
@@ -174,6 +193,7 @@ int64_t     VFS_ReadAt(VFS_HANDLE handle, uint64_t offset, void* buffer, size_t 
 int64_t     VFS_WriteAt(VFS_HANDLE handle, uint64_t offset, const void* buffer, size_t size);
 VFSResult   VFS_TruncateHandle(VFS_HANDLE handle, uint64_t length);
 VFSResult   VFS_SeekHandle(VFS_HANDLE handle, int64_t offset, VFSSeekWhence whence, uint64_t* out_position);
+struct FileStream* VFS_OpenFileStream(const char* path, uint32_t mode);
 
 #ifdef __cplusplus
 }

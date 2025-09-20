@@ -1,8 +1,40 @@
 #include <gfxterm/gfxterm.h>
 #include <debug/debug.h>
+#include <debug/debugTerm.h>
 #include <util/VPrintf.h>
 
 GFXTerminal* debug_terminal = NULL;
+
+static void dbgterm_Open();
+
+bool debugterm_is_ready(void)
+{
+    return debug_terminal != NULL;
+}
+
+bool debugterm_ensure_ready(void)
+{
+    if (!debug_terminal)
+    {
+        dbgterm_Open();
+    }
+    return debug_terminal != NULL;
+}
+
+GFXTerminal* debugterm_get(void)
+{
+    return debug_terminal;
+}
+
+extern void gfx_draw_task();
+
+void debugterm_flush(void)
+{
+    if (debug_terminal)
+    {
+        gfx_draw_task();
+    }
+}
 
 static void dbgterm_Open()
 {
