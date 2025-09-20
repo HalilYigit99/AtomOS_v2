@@ -85,6 +85,8 @@ static bool ensure_directory(const char* path)
 
 static void mount_block_devices(void)
 {
+    ensure_directory("/dev");
+
     size_t blk_count = BlockDevice_Count();
     for (size_t i = 0; i < blk_count; ++i)
     {
@@ -93,7 +95,7 @@ static void mount_block_devices(void)
             continue;
 
         char mount_path[32];
-        strcpy(mount_path, "/mnt/blk");
+        strcpy(mount_path, "/dev/blk");
         char idx_buf[16];
         utoa((unsigned)i, idx_buf, 10);
         strcat(mount_path, idx_buf);

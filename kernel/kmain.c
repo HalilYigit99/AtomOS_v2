@@ -70,8 +70,41 @@ void kmain()
     // List '/mnt' directory
     logDirectoryContents("/mnt");
 
-    // List '/mnt/sd1' directory
+    // List '/mnt/sd0' directory
     logDirectoryContents("/mnt/cd0");
+
+    if (VFS_DirectoryExists("/mnt/sd0"))
+    {
+        // List '/mnt/sd0' directory
+        logDirectoryContents("/mnt/sd0");
+
+        VFSResult result = VFS_Create("/mnt/sd0/hello.txt", VFS_NODE_REGULAR);
+
+        LOG("VFS_Create returned : %zu", (int)result);
+
+        if (result == VFS_RES_OK || result == VFS_RES_EXISTS)
+        {
+
+            LOG("File exists!");
+
+            FileStream* file = VFS_OpenFileStream("/mnt/sd0/hello.txt", VFS_OPEN_TRUNC);
+
+            FileStream_Write(file, "Hello from AtomOS!\nThis is a test file.\n", 41);
+
+            char content[256] = {0};
+
+            FileStream_Read(file, content, 256);
+
+            LOG("File content:\n%s", content);
+
+            FileStream_Close(file);
+
+        }
+
+    }
+
+    // List new contents of '/mnt/sd0' directory
+    logDirectoryContents("/mnt/sd0");
 
     // Open test file
     FileStream* file = VFS_OpenFileStream("/mnt/cd0/hello.txt", 0);

@@ -63,7 +63,14 @@ static void fatfs_free_node(VFSNode* node)
 {
     if (!node) return;
     FATNodeInfo* info = fat_node_info(node);
-    if (info) free(info);
+    if (info)
+    {
+        if (info->overlay_data)
+            free(info->overlay_data);
+        if (info->overlay_children)
+            List_Destroy(info->overlay_children, false);
+        free(info);
+    }
     if (node->name) free(node->name);
     free(node);
 }
@@ -114,6 +121,11 @@ static VFSNode* fatfs_alloc_node(FATVolume* volume, VFSNode* parent, const char*
     info->size = 0;
     info->attr = 0;
     info->is_root = false;
+    info->overlay = false;
+    info->overlay_data = NULL;
+    info->overlay_size = 0;
+    info->overlay_capacity = 0;
+    info->overlay_children = NULL;
 
     node->name = node_name;
     node->type = type;
@@ -464,6 +476,91 @@ static int64_t fatfs_read_file(FATNodeInfo* node, uint64_t offset, void* buffer,
     return (int64_t)total_read;
 }
 
+static bool fatfs_overlay_reserve(FATNodeInfo* info, size_t required)
+{
+    if (!info) return false;
+    if (info->overlay_capacity >= required)
+        return true;
+
+    size_t new_capacity = info->overlay_capacity ? info->overlay_capacity : 64;
+    while (new_capacity < required)
+    {
+        if (new_capacity > SIZE_MAX / 2)
+        {
+            new_capacity = required;
+            break;
+        }
+        new_capacity *= 2;
+    }
+
+    uint8_t* new_data = (uint8_t*)realloc(info->overlay_data, new_capacity);
+    if (!new_data)
+        return false;
+
+    if (new_capacity > info->overlay_capacity)
+    {
+        size_t delta = new_capacity - info->overlay_capacity;
+        memset(new_data + info->overlay_capacity, 0, delta);
+    }
+
+    info->overlay_data = new_data;
+    info->overlay_capacity = new_capacity;
+    return true;
+}
+
+static VFSNode* fatfs_overlay_find_child(FATNodeInfo* dir, const char* name)
+{
+    if (!dir || !name || !dir->overlay_children)
+        return NULL;
+
+    for (ListNode* it = List_Foreach_Begin(dir->overlay_children); it; it = List_Foreach_Next(it))
+    {
+        VFSNode* child = (VFSNode*)List_Foreach_Data(it);
+        if (!child || !child->name)
+            continue;
+        if (strcmp(child->name, name) == 0)
+            return child;
+    }
+
+    return NULL;
+}
+
+static size_t fatfs_overlay_child_count(FATNodeInfo* dir)
+{
+    return (dir && dir->overlay_children) ? List_Size(dir->overlay_children) : 0;
+}
+
+static bool fatfs_overlay_add_child(FATNodeInfo* dir, VFSNode* child)
+{
+    if (!dir || !child)
+        return false;
+
+    if (!dir->overlay_children)
+    {
+        dir->overlay_children = List_Create();
+        if (!dir->overlay_children)
+            return false;
+    }
+
+    List_Add(dir->overlay_children, child);
+    return true;
+}
+
+static size_t fatfs_directory_disk_entry_count(FATNodeInfo* dir)
+{
+    if (!dir || dir->overlay)
+        return 0;
+
+    size_t count = 0;
+    FAT_DirEntry entry;
+    char name[64];
+    while (fatfs_read_dir_entry_by_index(dir, count, &entry, name, sizeof(name)))
+    {
+        count++;
+    }
+    return count;
+}
+
 void FATFS_Register(void)
 {
     if (!s_fat_fs.ops)
@@ -662,13 +759,23 @@ static bool fat_read_boot_sector(const VFSMountParams* params, FAT_BootSector* o
 
 static VFSResult fat_node_open(VFSNode* node, uint32_t mode, void** out_handle)
 {
-    (void)mode;
     if (!node) return VFS_RES_INVALID;
     FATNodeInfo* info = fat_node_info(node);
     if (!info) return VFS_RES_ERROR;
 
-    if (node->type == VFS_NODE_DIRECTORY && (mode & VFS_OPEN_WRITE))
+    bool wants_write = (mode & (VFS_OPEN_WRITE | VFS_OPEN_APPEND | VFS_OPEN_TRUNC)) != 0;
+
+    if (!info->overlay && wants_write)
         return VFS_RES_ACCESS;
+
+    if (info->overlay && node->type == VFS_NODE_DIRECTORY && wants_write)
+        return VFS_RES_ACCESS;
+
+    if (info->overlay && node->type == VFS_NODE_REGULAR && (mode & VFS_OPEN_TRUNC))
+    {
+        info->overlay_size = 0;
+        info->size = 0;
+    }
 
     FATHandle* handle = (FATHandle*)malloc(sizeof(FATHandle));
     if (!handle) return VFS_RES_NO_MEMORY;
@@ -691,6 +798,22 @@ static int64_t fat_node_read(VFSNode* node, void* handle, uint64_t offset, void*
     FATNodeInfo* info = fat_node_info(node);
     if (!info) return -1;
 
+    if (info->overlay)
+    {
+        if (node->type == VFS_NODE_DIRECTORY)
+            return -1;
+
+        if (offset >= info->overlay_size || !info->overlay_data)
+            return 0;
+
+        size_t available = (size_t)MIN((uint64_t)size, info->overlay_size - offset);
+        if (available == 0)
+            return 0;
+
+        memcpy(buffer, info->overlay_data + offset, available);
+        return (int64_t)available;
+    }
+
     if (node->type == VFS_NODE_DIRECTORY)
         return -1;
 
@@ -699,14 +822,59 @@ static int64_t fat_node_read(VFSNode* node, void* handle, uint64_t offset, void*
 
 static int64_t fat_node_write(VFSNode* node, void* handle, uint64_t offset, const void* buffer, size_t size)
 {
-    (void)node; (void)handle; (void)offset; (void)buffer; (void)size;
-    return -1;
+    (void)handle;
+    if (!node || !buffer || size == 0) return -1;
+
+    FATNodeInfo* info = fat_node_info(node);
+    if (!info || node->type == VFS_NODE_DIRECTORY)
+        return -1;
+
+    if (!info->overlay)
+        return -1;
+
+    uint64_t end = offset + size;
+    if (end > SIZE_MAX)
+        return -1;
+
+    if (!fatfs_overlay_reserve(info, (size_t)end))
+        return -1;
+
+    memcpy(info->overlay_data + offset, buffer, size);
+    if (end > info->overlay_size)
+        info->overlay_size = (size_t)end;
+    info->size = info->overlay_size;
+
+    return (int64_t)size;
 }
 
 static VFSResult fat_node_truncate(VFSNode* node, void* handle, uint64_t length)
 {
-    (void)node; (void)handle; (void)length;
-    return VFS_RES_UNSUPPORTED;
+    (void)handle;
+    if (!node) return VFS_RES_INVALID;
+
+    FATNodeInfo* info = fat_node_info(node);
+    if (!info || node->type == VFS_NODE_DIRECTORY)
+        return VFS_RES_INVALID;
+
+    if (!info->overlay)
+        return VFS_RES_UNSUPPORTED;
+
+    if (length > SIZE_MAX)
+        return VFS_RES_NO_SPACE;
+
+    size_t new_size = (size_t)length;
+    if (!fatfs_overlay_reserve(info, new_size))
+        return VFS_RES_NO_MEMORY;
+
+    if (new_size > info->overlay_size)
+    {
+        size_t delta = new_size - info->overlay_size;
+        memset(info->overlay_data + info->overlay_size, 0, delta);
+    }
+
+    info->overlay_size = new_size;
+    info->size = info->overlay_size;
+    return VFS_RES_OK;
 }
 
 static VFSResult fat_node_readdir(VFSNode* node, void* handle, size_t index, VFSDirEntry* out_entry)
@@ -718,17 +886,45 @@ static VFSResult fat_node_readdir(VFSNode* node, void* handle, size_t index, VFS
     FATNodeInfo* info = fat_node_info(node);
     if (!info) return VFS_RES_ERROR;
 
-    FAT_DirEntry entry;
-    char name[64];
-    if (!fatfs_read_dir_entry_by_index(info, index, &entry, name, sizeof(name)))
+    if (!info->overlay)
+    {
+        FAT_DirEntry entry;
+        char name[64];
+        if (fatfs_read_dir_entry_by_index(info, index, &entry, name, sizeof(name)))
+        {
+            memset(out_entry->name, 0, sizeof(out_entry->name));
+            size_t len = strlen(name);
+            if (len > VFS_NAME_MAX) len = VFS_NAME_MAX;
+            memcpy(out_entry->name, name, len);
+            out_entry->name[len] = '\0';
+            out_entry->type = fat_direntry_is_directory(&entry) ? VFS_NODE_DIRECTORY : VFS_NODE_REGULAR;
+            return VFS_RES_OK;
+        }
+    }
+
+    size_t disk_count = fatfs_directory_disk_entry_count(info);
+    size_t overlay_count = fatfs_overlay_child_count(info);
+
+    if (index < disk_count)
+        return VFS_RES_NOT_FOUND;
+
+    size_t overlay_index = index - disk_count;
+    if (overlay_index >= overlay_count)
+        return VFS_RES_NOT_FOUND;
+
+    if (!info->overlay_children)
+        return VFS_RES_NOT_FOUND;
+
+    VFSNode* child = (VFSNode*)List_GetAt(info->overlay_children, overlay_index);
+    if (!child || !child->name)
         return VFS_RES_NOT_FOUND;
 
     memset(out_entry->name, 0, sizeof(out_entry->name));
-    size_t len = strlen(name);
+    size_t len = strlen(child->name);
     if (len > VFS_NAME_MAX) len = VFS_NAME_MAX;
-    memcpy(out_entry->name, name, len);
+    memcpy(out_entry->name, child->name, len);
     out_entry->name[len] = '\0';
-    out_entry->type = fat_direntry_is_directory(&entry) ? VFS_NODE_DIRECTORY : VFS_NODE_REGULAR;
+    out_entry->type = child->type;
     return VFS_RES_OK;
 }
 
@@ -750,6 +946,16 @@ static VFSResult fat_node_lookup(VFSNode* node, const char* name, VFSNode** out_
 
     FATNodeInfo* dir_info = fat_node_info(node);
     if (!dir_info) return VFS_RES_ERROR;
+
+    VFSNode* overlay_child = fatfs_overlay_find_child(dir_info, name);
+    if (overlay_child)
+    {
+        *out_node = overlay_child;
+        return VFS_RES_OK;
+    }
+
+    if (dir_info->overlay)
+        return VFS_RES_NOT_FOUND;
 
     FAT_DirEntry entry;
     char actual_name[64];
@@ -774,8 +980,53 @@ static VFSResult fat_node_lookup(VFSNode* node, const char* name, VFSNode** out_
 
 static VFSResult fat_node_create(VFSNode* node, const char* name, VFSNodeType type, VFSNode** out_node)
 {
-    (void)node; (void)name; (void)type; (void)out_node;
-    return VFS_RES_UNSUPPORTED;
+    if (!node || !name || !*name) return VFS_RES_INVALID;
+    if (node->type != VFS_NODE_DIRECTORY) return VFS_RES_INVALID;
+
+    size_t name_len = strlen(name);
+    if (name_len == 0 || name_len > VFS_NAME_MAX)
+        return VFS_RES_INVALID;
+
+    if (type != VFS_NODE_REGULAR && type != VFS_NODE_DIRECTORY)
+        return VFS_RES_UNSUPPORTED;
+
+    FATNodeInfo* dir_info = fat_node_info(node);
+    if (!dir_info) return VFS_RES_ERROR;
+
+    if (fatfs_overlay_find_child(dir_info, name))
+        return VFS_RES_EXISTS;
+
+    if (!dir_info->overlay)
+    {
+        FAT_DirEntry dummy;
+        char actual[64];
+        if (fatfs_find_entry(dir_info, name, &dummy, actual, sizeof(actual)))
+            return VFS_RES_EXISTS;
+    }
+
+    FATVolume* volume = dir_info->volume;
+    VFSNode* child = fatfs_alloc_node(volume,
+                                      node,
+                                      name,
+                                      type,
+                                      NULL);
+    if (!child)
+        return VFS_RES_NO_MEMORY;
+
+    FATNodeInfo* child_info = fat_node_info(child);
+    child_info->overlay = true;
+    child_info->attr = (type == VFS_NODE_DIRECTORY) ? FAT_ATTR_DIRECTORY : 0;
+    child->flags = 0;
+
+    if (!fatfs_overlay_add_child(dir_info, child))
+    {
+        fatfs_free_node(child);
+        return VFS_RES_NO_MEMORY;
+    }
+
+    if (out_node)
+        *out_node = child;
+    return VFS_RES_OK;
 }
 
 static VFSResult fat_node_remove(VFSNode* node, const char* name)
@@ -789,6 +1040,18 @@ static VFSResult fat_node_stat(VFSNode* node, VFSNodeInfo* out_info)
     if (!node || !out_info) return VFS_RES_INVALID;
     FATNodeInfo* info = fat_node_info(node);
     if (!info) return VFS_RES_ERROR;
+
+    if (info->overlay)
+    {
+        out_info->type = node->type;
+        out_info->flags = 0;
+        out_info->inode = info->first_cluster;
+        out_info->size = info->overlay_size;
+        out_info->atime = 0;
+        out_info->mtime = 0;
+        out_info->ctime = 0;
+        return VFS_RES_OK;
+    }
 
     out_info->type = node->type;
     out_info->flags = node->flags;

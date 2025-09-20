@@ -186,6 +186,11 @@ typedef struct NTFSNodeInfo {
     uint64_t file_size;
     bool     is_directory;
     bool     is_root;
+    bool     overlay;           // true for runtime-only nodes
+    uint8_t* overlay_data;
+    size_t   overlay_size;
+    size_t   overlay_capacity;
+    List*    overlay_children;  // runtime-only children (directories)
 } NTFSNodeInfo;
 
 typedef struct NTFSHandle {
@@ -265,6 +270,11 @@ static int64_t ntfs_read_from_runlist(NTFSNodeInfo* info, NTFSRunlist* runlist, 
 static bool ntfs_enumerate_directory(NTFSNodeInfo* dir, size_t target_index, VFSDirEntry* out_entry, const char* find_name, uint64_t* out_child_ref);
 static uint32_t ntfs_device_block_size(const NTFSVolume* volume);
 static bool ntfs_read_blocks(NTFSVolume* volume, uint64_t lba, uint32_t count, void* buffer);
+static bool ntfs_overlay_reserve(NTFSNodeInfo* info, size_t required);
+static VFSNode* ntfs_overlay_find_child(NTFSNodeInfo* dir, const char* name);
+static size_t ntfs_overlay_child_count(NTFSNodeInfo* dir);
+static bool ntfs_overlay_add_child(NTFSNodeInfo* dir, VFSNode* child);
+static size_t ntfs_directory_disk_entry_count(NTFSNodeInfo* dir);
 
 void NTFS_Register(void)
 {
@@ -497,11 +507,31 @@ static bool ntfs_probe(VFSFileSystem* fs, const VFSMountParams* params)
 static VFSResult ntfs_node_open(VFSNode* node, uint32_t mode, void** out_handle)
 {
     if (!node) return VFS_RES_INVALID;
-    if ((mode & VFS_OPEN_WRITE) || (mode & VFS_OPEN_APPEND) || (mode & VFS_OPEN_TRUNC))
-        return VFS_RES_ACCESS;
 
     NTFSNodeInfo* info = (NTFSNodeInfo*)node->internal_data;
     if (!info) return VFS_RES_ERROR;
+
+    bool wants_write = (mode & (VFS_OPEN_WRITE | VFS_OPEN_APPEND | VFS_OPEN_TRUNC)) != 0;
+
+    if (!info->overlay && wants_write)
+        return VFS_RES_ACCESS;
+
+    if (info->overlay)
+    {
+        if (info->is_directory)
+        {
+            if (wants_write)
+                return VFS_RES_ACCESS;
+            if (out_handle) *out_handle = NULL;
+            return VFS_RES_OK;
+        }
+
+        if (mode & VFS_OPEN_TRUNC)
+        {
+            info->overlay_size = 0;
+            info->file_size = 0;
+        }
+    }
 
     NTFSHandle* handle = (NTFSHandle*)malloc(sizeof(NTFSHandle));
     if (!handle) return VFS_RES_NO_MEMORY;
@@ -528,6 +558,19 @@ static int64_t ntfs_node_read(VFSNode* node, void* handle, uint64_t offset, void
     if (!node || !buffer || size == 0) return -1;
     NTFSNodeInfo* info = (NTFSNodeInfo*)node->internal_data;
     if (!info || info->is_directory) return -1;
+
+    if (info->overlay)
+    {
+        if (offset >= info->overlay_size)
+            return 0;
+
+        size_t available = (size_t)MIN((uint64_t)size, info->overlay_size - offset);
+        if (available == 0 || !info->overlay_data)
+            return 0;
+
+        memcpy(buffer, info->overlay_data + offset, available);
+        return (int64_t)available;
+    }
 
     NTFSHandle* h = (NTFSHandle*)handle;
     NTFSRunlist temp_runlist = {0};
@@ -599,20 +642,57 @@ static int64_t ntfs_node_read(VFSNode* node, void* handle, uint64_t offset, void
 
 static int64_t ntfs_node_write(VFSNode* node, void* handle, uint64_t offset, const void* buffer, size_t size)
 {
-    (void)node;
     (void)handle;
-    (void)offset;
-    (void)buffer;
-    (void)size;
-    return -1;
+    if (!node || !buffer || size == 0) return -1;
+
+    NTFSNodeInfo* info = (NTFSNodeInfo*)node->internal_data;
+    if (!info || info->is_directory) return -1;
+
+    if (!info->overlay)
+        return -1;
+
+    uint64_t end = offset + size;
+    if (end > SIZE_MAX)
+        return -1;
+
+    if (!ntfs_overlay_reserve(info, (size_t)end))
+        return -1;
+
+    memcpy(info->overlay_data + offset, buffer, size);
+    if (end > info->overlay_size)
+        info->overlay_size = (size_t)end;
+    info->file_size = info->overlay_size;
+
+    return (int64_t)size;
 }
 
 static VFSResult ntfs_node_truncate(VFSNode* node, void* handle, uint64_t length)
 {
-    (void)node;
     (void)handle;
-    (void)length;
-    return VFS_RES_UNSUPPORTED;
+    if (!node) return VFS_RES_INVALID;
+
+    NTFSNodeInfo* info = (NTFSNodeInfo*)node->internal_data;
+    if (!info || info->is_directory) return VFS_RES_INVALID;
+
+    if (!info->overlay)
+        return VFS_RES_UNSUPPORTED;
+
+    if (length > SIZE_MAX)
+        return VFS_RES_NO_SPACE;
+
+    size_t new_size = (size_t)length;
+    if (!ntfs_overlay_reserve(info, new_size))
+        return VFS_RES_NO_MEMORY;
+
+    if (new_size > info->overlay_size)
+    {
+        size_t delta = new_size - info->overlay_size;
+        memset(info->overlay_data + info->overlay_size, 0, delta);
+    }
+
+    info->overlay_size = new_size;
+    info->file_size = info->overlay_size;
+    return VFS_RES_OK;
 }
 
 static VFSResult ntfs_node_readdir(VFSNode* node, void* handle, size_t index, VFSDirEntry* out_entry)
@@ -641,11 +721,37 @@ static VFSResult ntfs_node_readdir(VFSNode* node, void* handle, size_t index, VF
     }
 
     size_t adjusted_index = index - 2;
-    VFSDirEntry entry;
-    if (!ntfs_enumerate_directory(info, adjusted_index, &entry, NULL, NULL))
+    size_t disk_count = 0;
+    if (!info->overlay)
+    {
+        VFSDirEntry entry;
+        if (ntfs_enumerate_directory(info, adjusted_index, &entry, NULL, NULL))
+        {
+            *out_entry = entry;
+            return VFS_RES_OK;
+        }
+        disk_count = ntfs_directory_disk_entry_count(info);
+    }
+
+    size_t overlay_count = ntfs_overlay_child_count(info);
+    if (adjusted_index < disk_count)
         return VFS_RES_NOT_FOUND;
 
-    *out_entry = entry;
+    size_t overlay_index = adjusted_index - disk_count;
+    if (overlay_index >= overlay_count)
+        return VFS_RES_NOT_FOUND;
+
+    if (!info->overlay_children)
+        return VFS_RES_NOT_FOUND;
+
+    VFSNode* child = (VFSNode*)List_GetAt(info->overlay_children, overlay_index);
+    if (!child || !child->name)
+        return VFS_RES_NOT_FOUND;
+
+    memset(out_entry, 0, sizeof(VFSDirEntry));
+    strncpy(out_entry->name, child->name, VFS_NAME_MAX);
+    out_entry->name[VFS_NAME_MAX] = '\0';
+    out_entry->type = child->type;
     return VFS_RES_OK;
 }
 
@@ -665,6 +771,16 @@ static VFSResult ntfs_node_lookup(VFSNode* node, const char* name, VFSNode** out
         *out_node = node->parent ? node->parent : node;
         return VFS_RES_OK;
     }
+
+    VFSNode* overlay_child = ntfs_overlay_find_child(dir_info, name);
+    if (overlay_child)
+    {
+        *out_node = overlay_child;
+        return VFS_RES_OK;
+    }
+
+    if (dir_info->overlay)
+        return VFS_RES_NOT_FOUND;
 
     uint64_t child_ref = 0;
     if (!ntfs_enumerate_directory(dir_info, (size_t)-1, NULL, name, &child_ref))
@@ -725,11 +841,62 @@ static VFSResult ntfs_node_lookup(VFSNode* node, const char* name, VFSNode** out
 
 static VFSResult ntfs_node_create(VFSNode* node, const char* name, VFSNodeType type, VFSNode** out_node)
 {
-    (void)node;
-    (void)name;
-    (void)type;
-    (void)out_node;
-    return VFS_RES_UNSUPPORTED;
+    if (!node || !name || !*name) return VFS_RES_INVALID;
+    NTFSNodeInfo* dir_info = (NTFSNodeInfo*)node->internal_data;
+    if (!dir_info || !dir_info->is_directory) return VFS_RES_INVALID;
+
+    size_t name_len = strlen(name);
+    if (name_len == 0 || name_len > VFS_NAME_MAX)
+        return VFS_RES_INVALID;
+
+    if (type != VFS_NODE_REGULAR && type != VFS_NODE_DIRECTORY)
+        return VFS_RES_UNSUPPORTED;
+
+    if (ntfs_overlay_find_child(dir_info, name))
+        return VFS_RES_EXISTS;
+
+    if (!dir_info->overlay)
+    {
+        if (ntfs_enumerate_directory(dir_info, (size_t)-1, NULL, name, NULL))
+            return VFS_RES_EXISTS;
+    }
+
+    VFSNode* child = ntfs_alloc_node(dir_info->volume,
+                                     node,
+                                     name,
+                                     type == VFS_NODE_DIRECTORY,
+                                     0,
+                                     0,
+                                     false);
+    if (!child)
+        return VFS_RES_NO_MEMORY;
+
+    NTFSNodeInfo* child_info = (NTFSNodeInfo*)child->internal_data;
+    child_info->overlay = true;
+    child_info->file_reference = 0;
+    child_info->parent_reference = dir_info->file_reference;
+    child_info->file_size = 0;
+    child->flags = 0;
+
+    if (type == VFS_NODE_DIRECTORY)
+    {
+        child_info->overlay_children = List_Create();
+        if (!child_info->overlay_children)
+        {
+            ntfs_free_node(child);
+            return VFS_RES_NO_MEMORY;
+        }
+    }
+
+    if (!ntfs_overlay_add_child(dir_info, child))
+    {
+        ntfs_free_node(child);
+        return VFS_RES_NO_MEMORY;
+    }
+
+    if (out_node)
+        *out_node = child;
+    return VFS_RES_OK;
 }
 
 static VFSResult ntfs_node_remove(VFSNode* node, const char* name)
@@ -744,6 +911,18 @@ static VFSResult ntfs_node_stat(VFSNode* node, VFSNodeInfo* out_info)
     if (!node || !out_info) return VFS_RES_INVALID;
     NTFSNodeInfo* info = (NTFSNodeInfo*)node->internal_data;
     if (!info) return VFS_RES_ERROR;
+
+    if (info->overlay)
+    {
+        out_info->type = info->is_directory ? VFS_NODE_DIRECTORY : VFS_NODE_REGULAR;
+        out_info->flags = 0;
+        out_info->size = info->overlay_size;
+        out_info->inode = info->file_reference;
+        out_info->atime = 0;
+        out_info->mtime = 0;
+        out_info->ctime = 0;
+        return VFS_RES_OK;
+    }
 
     NTFSNodeInfo temp;
     char name_buf[VFS_NAME_MAX + 1];
@@ -816,6 +995,90 @@ static bool ntfs_read_blocks(NTFSVolume* volume, uint64_t lba, uint32_t count, v
     if (!volume->device)
         return false;
     return BlockDevice_Read(volume->device, volume->lba_offset + lba, count, buffer);
+}
+
+static bool ntfs_overlay_reserve(NTFSNodeInfo* info, size_t required)
+{
+    if (!info) return false;
+    if (info->overlay_capacity >= required)
+        return true;
+
+    size_t new_capacity = info->overlay_capacity ? info->overlay_capacity : 64;
+    while (new_capacity < required)
+    {
+        if (new_capacity > SIZE_MAX / 2)
+        {
+            new_capacity = required;
+            break;
+        }
+        new_capacity *= 2;
+    }
+
+    uint8_t* new_data = (uint8_t*)realloc(info->overlay_data, new_capacity);
+    if (!new_data)
+        return false;
+
+    if (new_capacity > info->overlay_capacity)
+    {
+        size_t delta = new_capacity - info->overlay_capacity;
+        memset(new_data + info->overlay_capacity, 0, delta);
+    }
+
+    info->overlay_data = new_data;
+    info->overlay_capacity = new_capacity;
+    return true;
+}
+
+static VFSNode* ntfs_overlay_find_child(NTFSNodeInfo* dir, const char* name)
+{
+    if (!dir || !name || !dir->overlay_children)
+        return NULL;
+
+    for (ListNode* it = List_Foreach_Begin(dir->overlay_children); it; it = List_Foreach_Next(it))
+    {
+        VFSNode* child = (VFSNode*)List_Foreach_Data(it);
+        if (!child || !child->name)
+            continue;
+        if (strcmp(child->name, name) == 0)
+            return child;
+    }
+
+    return NULL;
+}
+
+static size_t ntfs_overlay_child_count(NTFSNodeInfo* dir)
+{
+    return dir && dir->overlay_children ? List_Size(dir->overlay_children) : 0;
+}
+
+static bool ntfs_overlay_add_child(NTFSNodeInfo* dir, VFSNode* child)
+{
+    if (!dir || !child)
+        return false;
+
+    if (!dir->overlay_children)
+    {
+        dir->overlay_children = List_Create();
+        if (!dir->overlay_children)
+            return false;
+    }
+
+    List_Add(dir->overlay_children, child);
+    return true;
+}
+
+static size_t ntfs_directory_disk_entry_count(NTFSNodeInfo* dir)
+{
+    if (!dir || dir->overlay)
+        return 0;
+
+    size_t count = 0;
+    VFSDirEntry temp;
+    while (ntfs_enumerate_directory(dir, count, &temp, NULL, NULL))
+    {
+        count++;
+    }
+    return count;
 }
 
 static uint32_t ntfs_compute_record_size(int32_t clusters, uint32_t bytes_per_cluster)
@@ -1079,7 +1342,14 @@ static void ntfs_free_node(VFSNode* node)
 {
     if (!node) return;
     NTFSNodeInfo* info = (NTFSNodeInfo*)node->internal_data;
-    if (info) free(info);
+    if (info)
+    {
+        if (info->overlay_data)
+            free(info->overlay_data);
+        if (info->overlay_children)
+            List_Destroy(info->overlay_children, false);
+        free(info);
+    }
     if (node->name) free(node->name);
     free(node);
 }
@@ -1122,6 +1392,11 @@ static VFSNode* ntfs_alloc_node(NTFSVolume* volume,
     info->is_directory = is_directory;
     info->is_root = is_root;
     info->parent_reference = parent ? ((NTFSNodeInfo*)parent->internal_data)->file_reference : file_ref;
+    info->overlay = false;
+    info->overlay_data = NULL;
+    info->overlay_size = 0;
+    info->overlay_capacity = 0;
+    info->overlay_children = NULL;
 
     node->name = node_name;
     node->type = is_directory ? VFS_NODE_DIRECTORY : VFS_NODE_REGULAR;

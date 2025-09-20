@@ -1,134 +1,152 @@
 # AtomOS
 
-A multi-architecture operating system supporting both 32-bit (i386) and 64-bit (x86_64) architectures with hybrid BIOS/EFI boot support.
+AtomOS is a hobby multi-architecture x86 operating system that builds both 32-bit (i386) and 64-bit (x86_64) kernels into a single hybrid BIOS/UEFI ISO. The project explores modern firmware handoff, ACPI, storage, graphics, and filesystem support while keeping the build reproducible with a modular Make system.
 
-## Features
+## Highlights
 
-- **Multi-Architecture Support**: Builds both 32-bit and 64-bit kernels simultaneously
-- **Universal Boot**: Single ISO boots on BIOS, EFI32, and EFI64 systems
-- **Smart GRUB Configuration**: Automatically selects appropriate kernel based on boot method
-- **Modular Build System**: Clean separation of architecture-specific and independent code
-- **NASM Assembly**: Uses NASM for all assembly code compilation
-- **Cross-Compilation**: Full cross-compilation toolchain support
+- Multi-architecture boot: GRUB2 + Multiboot2 loads either `kernelx86.elf` or `kernelx64.elf` based on firmware (BIOS, EFI32, EFI64).
+- Unified ISO pipeline: `make iso` produces `AtomOS.iso` with stand-alone GRUB EFI binaries plus legacy BIOS support.
+- Firmware-aware kernel bring-up: parses Multiboot2 tags, initialises EFI runtime when present, validates ACPI (RSDP/XSDT, MADT, FADT, HPET, MCFG), and switches to APIC/HPET timers if available.
+- Graphics pipeline: double-buffered framebuffer driver, resolution negotiation, bitmap font renderer, graphical terminal, mouse cursor, and a periodic redraw task targeting ~60 FPS.
+- Input devices: PS/2 keyboard and mouse drivers plug into the driver framework and feed the GUI surface.
+- Storage stack: driver abstraction with AHCI (command engine + IRQ handling) and legacy ATA PIO fallback registering block devices.
+- Volume management: MBR/GPT parsing, device naming, and auto-mount to `/dev/blk*`, `/mnt/sd*`, or `/mnt/cd*` depending on media type.
+- Virtual filesystem: mount-aware VFS core with path caching, RAMFS root, and read-focused filesystem drivers for FAT12/16/32, ISO9660, and NTFS, plus overlay buffers for write experiments.
+- Streaming I/O helpers: disk/file/output stream abstractions decouple kernel subsystems from concrete backends.
+- Debug-friendly build: UART + graphical logging, structured macros, `DEBUG=1` builds, and a GDB launcher script streamline tracing.
 
-## Build Requirements
+## Project Status
 
-### Ubuntu/WSL Dependencies
+AtomOS is a work-in-progress research kernel. The 32-bit and 64-bit builds boot in QEMU, enumerate ACPI tables, switch to APIC + HPET where supported, draw a GUI surface, and mount FAT/ISO volumes exposed through AHCI or ATA emulation. User-space, scheduling, and full filesystem write-through are under active development; expect rough edges.
+
+## Getting Started
+
+### Host dependencies (Ubuntu/WSL example)
 
 ```bash
 sudo apt update
-sudo apt install build-essential nasm qemu-system-x86
+sudo apt install build-essential nasm qemu-system-x86 xorriso ovmf
 sudo apt install grub-pc-bin grub-efi-amd64-bin grub-efi-ia32-bin
-sudo apt install xorriso ovmf
 ```
 
-### Cross-Compilation Toolchain
+### Cross-compilers
 
-You need to install cross-compilers for both architectures:
+The build expects bare-metal cross toolchains on PATH:
 
-- `i686-elf-gcc` for 32-bit compilation
-- `x86_64-elf-gcc` for 64-bit compilation
+- `i686-elf-gcc`, `i686-elf-ld`, `i686-elf-objcopy`, …
+- `x86_64-elf-gcc`, `x86_64-elf-ld`, `x86_64-elf-objcopy`, …
 
-## Project Structure
+You can build them with the OSDev cross-compiler guide or use prebuilt toolchains.
+
+### Building
+
+```bash
+make            # same as `make iso`
+make kernel32   # 32-bit kernel only
+make kernel64   # 64-bit kernel only
+make iso        # rebuild hybrid ISO
+make clean      # wipe build/, iso/, AtomOS.iso
+```
+
+Useful flags and helpers:
+
+- `DEBUG=1 make iso` keeps symbols, relaxes optimisations, and enables extra logging.
+- `make info`, `make toolchain-info`, `make kernel-info`, `make iso-info` print build metadata.
+
+Build artefacts live under `build/` (ELFs, intermediates) and `iso/` (staging tree). The final image is `AtomOS.iso` in the repository root.
+
+### Running in QEMU
+
+Run targets proxy to `scripts/tools/run_qemu.sh`:
+
+```bash
+make run-bios        # qemu-system-i386, BIOS boot
+make run-efi64       # qemu-system-x86_64 with OVMF.fd
+make run-efi32       # requires /usr/share/qemu/OVMF_CODE_IA32.fd
+make run-debug       # BIOS boot + GDB stub (TCP :1234)
+make run-efi64-debug # EFI64 boot + GDB stub
+```
+
+You can call the script directly:
+
+```bash
+./scripts/tools/run_qemu.sh bios
+./scripts/tools/run_qemu.sh efi64
+./scripts/tools/run_qemu.sh efi32-debug
+```
+
+### Debugging
+
+- `DEBUG=1 make run-debug` starts QEMU halted with a GDB server.
+- `scripts/tools/gdb_wrap.sh <arch> <elf>` chooses an appropriate GDB (`gdb-multiarch` if available) and skips noisy symbols.
+  - `scripts/tools/gdb_wrap.sh i386 build/kernelx86.elf`
+  - `scripts/tools/gdb_wrap.sh x86_64 build/kernelx64.elf`
+- Logs stream to the graphical terminal, UART, and serial stdio depending on boot method.
+
+## Boot Flow Overview
+
+1. GRUB2 (BIOS or stand-alone EFI) loads either `kernelx86.elf` or `kernelx64.elf` via Multiboot2.
+2. Early assembly (`kernel/*/start.asm`) sets up CPU state, stacks, and jumps into `boot/boot.c`.
+3. Multiboot2 tags are parsed for memory maps, framebuffer, ACPI, and EFI handles.
+4. Heap and physical memory managers come online; EFI runtime or BIOS shims initialise firmware services.
+5. ACPI tables are validated; APIC/HPET drivers replace PIC/PIT when available.
+6. Graphics initialises framebuffer targets, picks the best sub-1080p mode, and spawns a periodic task for redraw.
+7. Driver framework registers input, timer, and storage drivers (AHCI first, ATA fallback).
+8. Block devices register with the volume manager; MBR/GPT volumes mount into `/mnt`.
+9. VFS mounts RAMFS as `/`, then auto-mounts detected filesystems under `/dev/` and `/mnt/`.
+10. `kmain()` demonstrates filesystem usage by creating a file on a mounted volume and dumping directory listings.
+
+## Subsystems
+
+- **Memory:** Boot-time PMM builds from firmware maps, a growable heap backs `malloc/calloc`, and alignment helpers support DMA-friendly allocations.
+- **Driver framework:** `DriverBase` offers register/enable hooks shared by APIC, PIC, HPET, PIT, PS/2 devices, AHCI, ATA, VBE, EFI GOP, and more.
+- **Graphics:** `graphics/` provides buffer management, bitmap font rasteriser, BMP loader, and screen abstraction; `gfxterm/` implements a text terminal over the framebuffer.
+- **Filesystem stack:** `filesystem/VFS.c` implements a cached, mount-aware VFS with path normalisation and stream-backed file handles. Drivers live under `filesystem/{ramfs,fat,iso9660,ntfs}`.
+- **Storage:** `storage/BlockDevice.c` abstracts read/write/flush while `storage/VolumeManager.c` discovers partitions (MBR & GPT) and associates them with filesystems.
+- **Testing utilities:** `kernel/tests/` hosts diagnostics such as `block_read_test` for exercising the block device layer.
+- **Streams & logging:** `stream/OutputStream`, `FileStream`, and `DiskStream` unify I/O, while `debug/` covers UART, exceptions, and the graphics debugger terminal.
+
+## Repository Layout
 
 ```
-AtomOS/
+.
+├── Makefile                     # Top-level build orchestration
+├── scripts/
+│   ├── makefiles/               # Modular build rules (arch, kernel, libc, grub, toolchain)
+│   ├── tools/                   # QEMU, GDB, ISO helper scripts
+│   └── grub.cfg                 # Smart GRUB2 config used in the ISO
 ├── kernel/
-│   ├── i386/           # 32-bit architecture specific code
-│   ├── amd64/          # 64-bit architecture specific code
-│   └── [other dirs]    # Architecture-independent kernel code
-├── kernel_include/     # Kernel headers
-├── libc/              # LibC implementation (for user-space)
-├── libc_include/      # LibC headers
-├── scripts/           # Build system and configuration
-│   ├── makefiles/     # Modular Makefiles
-│   ├── tools/         # Utility scripts
-│   ├── grub.cfg       # GRUB configuration
-│   └── linker.ld      # Linker script
-└── build/             # Build outputs
-    ├── kernelx86.elf  # 32-bit kernel
-    └── kernelx64.elf  # 64-bit kernel
-```
-
-## Building
-
-### Build Everything
-
-```bash
-make all
-```
-
-This creates `AtomOS.iso` - a hybrid ISO that boots on all supported systems.
-
-### Build Specific Components
-
-```bash
-make kernel     # Build both kernels
-make kernel32   # Build 32-bit kernel only  
-make kernel64   # Build 64-bit kernel only
-make libc       # Build LibC (future)
-make iso        # Create bootable ISO
-```
-
-### Cleaning
-
-```bash
-make clean      # Remove all build files
+│   ├── boot/                    # Multiboot2 entry, early init
+│   ├── i386/, amd64/            # Arch-specific assembly and paging code
+│   ├── driver/                  # AHCI, ATA, APIC, PIC, HPET, PS/2, VBE, EFI GOP, ...
+│   ├── graphics/, gfxterm/      # Framebuffer renderer and terminal
+│   ├── filesystem/              # VFS core + RAMFS/FAT/ISO9660/NTFS drivers
+│   ├── storage/                 # Block device registry and volume manager
+│   ├── acpi/, efi/, bios/       # Firmware integration layers
+│   ├── debug/, irq/, time/, task/ # Diagnostics, interrupt routing, timers, periodic tasks
+│   └── kmain.c                  # Kernel entry point
+├── kernel_include/              # Public headers shared across architectures
+├── libc/, libc_include/         # Planned userland libc (currently stubs)
+├── build/                       # Generated object files and ELF binaries
+├── iso/                         # ISO staging tree populated by `make iso`
+├── AtomOS.iso                   # Final hybrid image after a build
+└── logo*.bmp                    # Branding assets displayed at boot
 ```
 
 ## Testing
 
-### QEMU Testing
+Kernel-side tests live in `kernel/tests/`. To try the block device reader example:
 
-```bash
-# Test different boot methods
-./scripts/tools/run_qemu.sh bios     # BIOS boot
-./scripts/tools/run_qemu.sh efi32    # EFI 32-bit boot
-./scripts/tools/run_qemu.sh efi64    # EFI 64-bit boot
-./scripts/tools/run_qemu.sh debug    # Debug with GDB
-```
+1. Include `tests/block_read_test.h` in `kmain.c`.
+2. Call `block_read_test_run()` after storage drivers initialise.
+3. Boot via QEMU and observe hexdumps from LBA 0/1.
 
-### Build Information
-
-```bash
-make info           # Show build targets
-make toolchain-info # Show toolchain details
-make kernel-info    # Show kernel build details
-```
-
-## Architecture Design
-
-### Build Output Organization
-
-- `build/x86/` - Architecture-specific code compiled for 32-bit
-- `build/x86_64/` - Architecture-specific code compiled for 64-bit  
-- `build/kernel_x86/` - Architecture-independent code compiled for 32-bit
-- `build/kernel_x86_64/` - Architecture-independent code compiled for 64-bit
-
-### Boot Process
-
-1. **GRUB Detection**: Automatically detects boot method (BIOS/EFI32/EFI64)
-2. **Kernel Selection**: Loads appropriate kernel based on platform capabilities
-3. **Smart Configuration**: Presents relevant menu options only
-
-### Kernel Linking
-
-- **32-bit kernel**: Links `build/x86/*.o` + `build/kernel_x86/*.o` → `kernelx86.elf`
-- **64-bit kernel**: Links `build/x86_64/*.o` + `build/kernel_x86_64/*.o` → `kernelx64.elf`
-
-## Development
-
-The build system is designed for easy development:
-
-- **Modular Makefiles**: Each component has its own build rules
-- **Automatic Dependencies**: Source files are discovered automatically
-- **Clean Separation**: Architecture-specific vs independent code
-- **Cross-Platform**: Works on Ubuntu, WSL, and other Linux distributions
-
-## License
-
-[Add your license here]
+Additional harnesses can be added under `kernel/tests/` and invoked from boot code or debug builds.
 
 ## Contributing
 
-[Add contribution guidelines here]
+AtomOS is currently developed in a single repository. If you plan to contribute, open an issue or PR describing the subsystem you are touching so we can coordinate interfaces (especially around the VFS and driver frameworks).
+
+## License
+
+The project has not published a formal license yet; all rights reserved until one is added.

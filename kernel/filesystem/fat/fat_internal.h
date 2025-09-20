@@ -100,6 +100,11 @@ typedef struct FATNodeInfo {
     uint32_t size;
     uint8_t  attr;
     bool     is_root;
+    bool     overlay;
+    uint8_t* overlay_data;
+    size_t   overlay_size;
+    size_t   overlay_capacity;
+    List*    overlay_children;
 } FATNodeInfo;
 
 typedef struct FATVolume {
