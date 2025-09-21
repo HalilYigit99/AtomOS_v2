@@ -17,17 +17,17 @@ SECTIONS
 
     . = 0x7000; /* BIOS code location */
 
-    __bios_code_start = .;
+    __bios_code_start = 0x100000 + . - 0x7000;
 
     .bios_code : ALIGN(4K)
     {
         *(.bios_code)
         *(.bios_code.*)
     }
-    __bios_code_end = .;
+    __bios_code_end = 0x100000 + . - 0x7000;
 
     /* Kernel starts at 1MB physical address */
-    . = 0x100000;
+    . = 0x100000 + . - 0x7000;
     
     /* Text section - executable code */
     .text : ALIGN(4K)

@@ -274,7 +274,6 @@ static bool ahci_read_sector(ahci_port_ctx_t* ctx, uint64_t lba, uint32_t count,
         }
     }
     // success
-    LOG("AHCI: READ DMA ok port %u lba=%llu count=%u PRDBC=%u", ctx->port_no, (unsigned long long)lba, count, ((hba_cmd_header_t*)ctx->clb_mem)->prdbc);
     return true;
 }
 

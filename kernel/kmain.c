@@ -78,9 +78,16 @@ void kmain()
         // List '/mnt/sd0' directory
         logDirectoryContents("/mnt/sd0");
 
-        VFSResult result = VFS_Create("/mnt/sd0/hello.txt", VFS_NODE_REGULAR);
+        VFSResult result = VFS_FileExists("/mnt/sd0/hello.txt") == true ? VFS_RES_EXISTS : VFS_RES_NOT_FOUND;
 
-        LOG("VFS_Create returned : %zu", (int)result);
+        if (result == VFS_RES_NOT_FOUND)
+        {
+            LOG("File does not exist, creating...");
+
+            result = VFS_Create("/mnt/sd0/hello.txt", VFS_NODE_REGULAR);
+
+            LOG("VFS_Create returned : %i", (int)result);
+        }
 
         if (result == VFS_RES_OK || result == VFS_RES_EXISTS)
         {
@@ -132,4 +139,12 @@ void kmain()
             LOG("Failed to read from /mnt/cd0/hello.txt");
         }
     }
+
+    LOG("BIOS interrupt test:");
+    arch_processor_regs_t regs_in = {0};
+    arch_processor_regs_t regs_out = {0};
+    arch_bios_int(0x10, &regs_in, &regs_out);
+
+    LOG("AtomOS Kernel Main Function Completed");
+
 }

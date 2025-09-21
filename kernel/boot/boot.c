@@ -191,6 +191,7 @@ void uptime_counter_task()
 
 void __boot_kernel_start(void)
 {
+
     debugStream->Open();
 
     i386_processor_exceptions_init();
@@ -201,6 +202,12 @@ void __boot_kernel_start(void)
     LOG("Multiboot2 Tag Pointer: 0x%08X", mb2_tagptr);
 
     multiboot2_parse();
+
+    if (mb2_framebuffer)
+    {
+        // Fill framebuffer with white
+        memset((void*)(uintptr_t)mb2_framebuffer->framebuffer_addr, 0xFF, mb2_framebuffer->framebuffer_pitch * mb2_framebuffer->framebuffer_height);
+    }
 
     heap_init(); // Initialize local heap
 
