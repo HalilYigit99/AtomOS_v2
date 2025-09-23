@@ -343,8 +343,6 @@ void __boot_kernel_start(void)
     LOG("Changing video mode...");
     LOG("Best mode found: %ux%u, %u bpp", best->width, best->height, best->bpp);
 
-    sleep_ms(3000); // Give some time for the debug terminal to initialize properly
-
     screen_changeVideoMode(&main_screen, best);
     gfxterm_resize(debug_terminal, (gfx_size){best->width / debug_terminal->font->size.width, best->height / debug_terminal->font->size.height});
     gfxterm_clear(debug_terminal);
