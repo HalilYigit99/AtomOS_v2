@@ -207,6 +207,13 @@ void __boot_kernel_start(void)
     {
         // Fill framebuffer with white
         memset((void*)(uintptr_t)mb2_framebuffer->framebuffer_addr, 0xFF, mb2_framebuffer->framebuffer_pitch * mb2_framebuffer->framebuffer_height);
+        // Attempt to set framebuffer pages to Write-Combining for faster graphics writes (best-effort)
+        size_t fb_size = (size_t)mb2_framebuffer->framebuffer_pitch * (size_t)mb2_framebuffer->framebuffer_height;
+        arch_paging_pat_init();
+        if (!arch_paging_set_memtype((uintptr_t)mb2_framebuffer->framebuffer_addr, fb_size, ARCH_PAGING_MT_WC)) {
+            // Fallback to Uncacheable minus if WC not supported (i386 side returns false if unmapped)
+            arch_paging_set_memtype((uintptr_t)mb2_framebuffer->framebuffer_addr, fb_size, ARCH_PAGING_MT_UC_MINUS);
+        }
     }
 
     heap_init(); // Initialize local heap

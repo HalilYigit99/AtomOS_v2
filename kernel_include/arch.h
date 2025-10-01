@@ -142,6 +142,45 @@ extern void arch_cpuid(uint32_t leaf, size_t* regA, size_t* regB, size_t* regC, 
 
 extern void arch_bios_int(uint8_t int_no, arch_processor_regs_t* in, arch_processor_regs_t* out);
 
+/* -------------------------------------------------------------------------- */
+/* Paging Memory Type / Attribute Control (architecture-level interface)      */
+/* -------------------------------------------------------------------------- */
+
+typedef enum {
+    ARCH_PAGING_MT_WB = 0,      /* Write-Back (default) */
+    ARCH_PAGING_MT_WT,          /* Write-Through */
+    ARCH_PAGING_MT_UC,          /* Uncacheable */
+    ARCH_PAGING_MT_UC_MINUS,    /* UC- (Uncacheable, weakly ordered) */
+    ARCH_PAGING_MT_WC,          /* Write-Combining */
+    ARCH_PAGING_MT_WP           /* Write-Protected */
+} arch_paging_memtype_t;
+
+/* Initialize PAT MSR and internal structures (idempotent). */
+bool arch_paging_pat_init(void);
+
+/* Set memory type attributes for an existing mapped physical region.
+ * phys_start / length: physical address range (will be page-aligned internally)
+ * type: one of arch_paging_memtype_t
+ * Returns true on full success; false if any page not present or unsupported.
+ */
+bool arch_paging_set_memtype(uintptr_t phys_start, size_t length, arch_paging_memtype_t type);
+
+/* Map a physical range to a virtual range with desired base flags + memory type.
+ * If the mapping already exists, attributes are updated.
+ */
+bool arch_paging_map_with_type(uintptr_t phys_start, uintptr_t virt_start, size_t length,
+                               uint64_t base_flags, arch_paging_memtype_t type);
+
+/* Query the memory type for a given virtual address (best-effort). */
+arch_paging_memtype_t arch_paging_get_memtype(uintptr_t virt_addr);
+
+/* Flush address from TLB (single page) */
+void arch_tlb_flush_one(void* addr);
+
+/* Invalidate entire TLB by reloading CR3 (fallback for large batches) */
+void arch_tlb_flush_all(void);
+
+
 #ifdef __cplusplus
 }
 #endif

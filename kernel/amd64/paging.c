@@ -2,6 +2,7 @@
 #include <arch.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 // Page table entry flags
 #define PTE_P   (1ull << 0)  // Present
@@ -25,6 +26,46 @@ static uint64_t pd3[512]  __attribute__((aligned(4096)));
 static inline void write_cr3(uint64_t phys)
 {
 	__asm__ __volatile__("mov %0, %%cr3" :: "r"(phys) : "memory");
+}
+
+/* === Architecture paging attribute extension (amd64) ======================= */
+/* Skeleton implementation: fine-grained 4KiB mapping upgrade and PAT use is  */
+/* left as future enhancement.                                                */
+
+static bool g_pat_initialized = false;
+
+bool arch_paging_pat_init(void) {
+	if (g_pat_initialized) return true;
+	/* TODO: Detect CPUID.PAT and write IA32_PAT MSR. For now mark initialized. */
+	g_pat_initialized = true;
+	return true;
+}
+
+void arch_tlb_flush_one(void* addr) {
+	asm volatile ("invlpg (%0)" :: "r"(addr) : "memory");
+}
+
+void arch_tlb_flush_all(void) {
+	uint64_t cr3; asm volatile ("mov %%cr3, %0" : "=r"(cr3));
+	asm volatile ("mov %0, %%cr3" :: "r"(cr3) : "memory");
+}
+
+arch_paging_memtype_t arch_paging_get_memtype(uintptr_t virt_addr) {
+	(void)virt_addr;
+	/* Without 4KiB page tables constructed, only coarse inference: return WB. */
+	return ARCH_PAGING_MT_WB;
+}
+
+bool arch_paging_set_memtype(uintptr_t phys_start, size_t length, arch_paging_memtype_t type) {
+	/* Current identity map uses 2MiB pages; to change a sub-range we'd need to split. */
+	(void)phys_start; (void)length; (void)type;
+	return false; /* Indicate unsupported for now. */
+}
+
+bool arch_paging_map_with_type(uintptr_t phys_start, uintptr_t virt_start, size_t length,
+							   uint64_t base_flags, arch_paging_memtype_t type) {
+	(void)phys_start; (void)virt_start; (void)length; (void)base_flags; (void)type;
+	return false; /* Placeholder until full 4KiB mapping logic added. */
 }
 
 // Map identity 0..4GiB using 2MiB pages; mark IOAPIC/LAPIC pages as uncacheable

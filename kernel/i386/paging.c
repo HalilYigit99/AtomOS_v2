@@ -1,4 +1,8 @@
 #include <arch.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+
 
 // Intel i386 (non-PAE) Page Table Entry (4 KiB page)
 // Bit layout per Intel SDM Vol. 3A, Chapter 4 (Paging):
@@ -72,4 +76,97 @@ void paging_init() {
 
     }
 
+}
+
+/* === Architecture paging attribute extension (i386) ======================== */
+static bool g_pat_initialized = false;
+
+bool arch_paging_pat_init(void) {
+    if (g_pat_initialized) return true;
+    g_pat_initialized = true; /* Placeholder: real PAT MSR programming omitted */
+    return true;
+}
+
+void arch_tlb_flush_one(void* addr) {
+    asm volatile ("invlpg (%0)" :: "r"(addr) : "memory");
+}
+
+void arch_tlb_flush_all(void) {
+    uintptr_t cr3; asm volatile ("mov %%cr3, %0" : "=r"(cr3));
+    asm volatile ("mov %0, %%cr3" :: "r"(cr3) : "memory");
+}
+
+static inline PTE* __pte_from_virt(uintptr_t vaddr) {
+    uint32_t dir = (vaddr >> 22) & 0x3FFu;
+    uint32_t tbl = (vaddr >> 12) & 0x3FFu;
+    return &page_tables[dir][tbl];
+}
+
+arch_paging_memtype_t arch_paging_get_memtype(uintptr_t virt_addr) {
+    PTE* pte = __pte_from_virt(virt_addr);
+    if (!pte->present) return ARCH_PAGING_MT_UC;
+    uint8_t pat = pte->pat ? 1 : 0;
+    uint8_t pcd = pte->cache_disabled ? 1 : 0;
+    uint8_t pwt = pte->write_through ? 1 : 0;
+    if (!pat && !pcd && !pwt) return ARCH_PAGING_MT_WB;
+    if (!pat && !pcd &&  pwt) return ARCH_PAGING_MT_WT;
+    if (!pat &&  pcd && !pwt) return ARCH_PAGING_MT_UC_MINUS;
+    if (!pat &&  pcd &&  pwt) return ARCH_PAGING_MT_UC;
+    if ( pat && !pcd && !pwt) return ARCH_PAGING_MT_WC;
+    if ( pat && !pcd &&  pwt) return ARCH_PAGING_MT_WP;
+    return ARCH_PAGING_MT_UC;
+}
+
+static void __apply_type_to_pte(PTE* pte, arch_paging_memtype_t type) {
+    pte->write_through = 0;
+    pte->cache_disabled = 0;
+    pte->pat = 0;
+    switch (type) {
+        case ARCH_PAGING_MT_WB: break;
+        case ARCH_PAGING_MT_WT: pte->write_through = 1; break;
+        case ARCH_PAGING_MT_UC: pte->write_through = 1; pte->cache_disabled = 1; break;
+        case ARCH_PAGING_MT_UC_MINUS: pte->cache_disabled = 1; break;
+        case ARCH_PAGING_MT_WC: pte->pat = 1; break;
+        case ARCH_PAGING_MT_WP: pte->pat = 1; pte->write_through = 1; break; /* heuristic */
+    }
+}
+
+bool arch_paging_set_memtype(uintptr_t phys_start, size_t length, arch_paging_memtype_t type) {
+    if (length == 0) return true;
+    uintptr_t page_size = 4096u;
+    uintptr_t start = phys_start & ~(page_size - 1);
+    uintptr_t end = (phys_start + length + page_size - 1) & ~(page_size - 1);
+    size_t count = (end - start) / page_size;
+    size_t changed = 0;
+    for (size_t i = 0; i < count; ++i) {
+        uintptr_t cur = start + i * page_size;
+        PTE* pte = __pte_from_virt(cur);
+        if (!pte->present) continue;
+        __apply_type_to_pte(pte, type);
+        changed++;
+        arch_tlb_flush_one((void*)cur);
+    }
+    return changed == count;
+}
+
+bool arch_paging_map_with_type(uintptr_t phys_start, uintptr_t virt_start, size_t length,
+                               uint64_t base_flags, arch_paging_memtype_t type) {
+    (void)base_flags;
+    if (length == 0) return true;
+    uintptr_t page_size = 4096u;
+    uintptr_t phys = phys_start & ~(page_size - 1);
+    uintptr_t virt = virt_start & ~(page_size - 1);
+    uintptr_t end  = (phys_start + length + page_size - 1) & ~(page_size - 1);
+    size_t count = (end - phys) / page_size;
+    for (size_t i = 0; i < count; ++i) {
+        uintptr_t p = phys + i * page_size;
+        uintptr_t v = virt + i * page_size;
+        PTE* pte = __pte_from_virt(v);
+        if (!pte->present || pte->frame != (p >> 12)) {
+            return false; /* Mapping mismatch (full implementation would create it) */
+        }
+        __apply_type_to_pte(pte, type);
+        arch_tlb_flush_one((void*)v);
+    }
+    return true;
 }
