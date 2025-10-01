@@ -261,18 +261,19 @@ void __boot_kernel_start(void)
         LOG("HPET supported – using HPET for system tick");
         system_driver_register(&hpet_driver);
         system_driver_enable(&hpet_driver);
+        hpet_timer->setFrequency(1000);
+        hpet_timer->add_callback(uptime_counter_task);
+    }{
+        LOG("HPET not available – falling back to PIT");
+        system_driver_register(&pit_driver);
+        system_driver_enable(&pit_driver);
+        irq_controller->acknowledge(0); // Acknowledge IRQ0 (PIT)
+        // Hook uptime tick to the active hardware timer
+        pit_timer->setFrequency(1000);
+        pit_timer->add_callback(uptime_counter_task);
     }
 
-    LOG("HPET not available – falling back to PIT");
-    system_driver_register(&pit_driver);
-    system_driver_enable(&pit_driver);
-    irq_controller->acknowledge(0); // Acknowledge IRQ0 (PIT)
-
     asm volatile ("sti"); // Enable interrupts
-
-    // Hook uptime tick to the active hardware timer
-    pit_timer->setFrequency(1000);
-    pit_timer->add_callback(uptime_counter_task);
 
     gfx_init();
 

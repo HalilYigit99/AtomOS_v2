@@ -8,7 +8,6 @@
 #include <time/timer.h>
 #include <pci/PCI.h>
 #include <memory/memory.h>
-#include <task/task.h>
 #include <arch.h>
 #include <gfxterm/gfxterm.h>
 #include <stream/OutputStream.h>
@@ -28,10 +27,6 @@
 #include <stream/FileStream.h>
 #include <stdint.h>
 
-static void kernel_root_thread(void* arg);
-static void demo_worker_thread(void* arg);
-static void demo_logger_thread(void* arg);
-
 void gfx_draw_task();
 
 extern void acpi_poweroff(); // ACPI power off function
@@ -47,15 +42,15 @@ extern void efi_reset_to_firmware();
 extern void FAT_Test_Run(void);
 extern void VFS_RamFSTest_Run(void);
 
-static void logDirectoryContents(char* path)
+static void logDirectoryContents(char *path)
 {
-    List* rootDirContents = VFS_GetDirectoryContents(path);
+    List *rootDirContents = VFS_GetDirectoryContents(path);
     if (rootDirContents)
     {
         LOG("'%s' contents:", path);
-        for (ListNode* node = rootDirContents->head; node != NULL; node = node->next)
+        for (ListNode *node = rootDirContents->head; node != NULL; node = node->next)
         {
-            char* name = (char*)node->data;
+            char *name = (char *)node->data;
             LOG(" - %s", name);
         }
     }
@@ -65,9 +60,8 @@ static void logDirectoryContents(char* path)
     }
 }
 
-static void kernel_root_thread(void* arg)
+void kmain(void)
 {
-    (void)arg;
     LOG("AtomOS Kernel Main Function Started");
 
     // List '/' directory
@@ -100,7 +94,7 @@ static void kernel_root_thread(void* arg)
 
             LOG("File exists!");
 
-            FileStream* file = VFS_OpenFileStream("/mnt/sd0/hello.txt", VFS_OPEN_TRUNC);
+            FileStream *file = VFS_OpenFileStream("/mnt/sd0/hello.txt", VFS_OPEN_TRUNC);
 
             FileStream_Write(file, "Hello from AtomOS!\nThis is a test file.\n", 41);
 
@@ -111,20 +105,19 @@ static void kernel_root_thread(void* arg)
             LOG("File content:\n%s", content);
 
             FileStream_Close(file);
-
         }
-
     }
 
     // List new contents of '/mnt/sd0' directory
     logDirectoryContents("/mnt/sd0");
 
     // Open test file
-    FileStream* file = VFS_OpenFileStream("/mnt/cd0/hello.txt", 0);
+    FileStream *file = VFS_OpenFileStream("/mnt/cd0/hello.txt", 0);
     if (file)
     {
         LOG("Opened /mnt/cd0/hello.txt");
-    }else 
+    }
+    else
     {
         LOG("Failed to open /mnt/cd0/hello.txt");
     }
@@ -150,65 +143,4 @@ static void kernel_root_thread(void* arg)
     LOG("AtomOS Kernel Main Function Completed");
 
     gfx_draw_task();
-
-    task_exit(0);
 }
-static void demo_worker_thread(void* arg)
-{
-    (void)arg;
-    for (uint32_t i = 0; i < 5; ++i)
-    {
-        LOG("demo-worker: iteration %u", (unsigned)i);
-        task_sleep_ms(200);
-    }
-    LOG("demo-worker: completed");
-    task_exit(0);
-}
-
-static void demo_logger_thread(void* arg)
-{
-    (void)arg;
-    for (uint32_t i = 0; i < 3; ++i)
-    {
-        LOG("demo-logger: heartbeat %u", (unsigned)i);
-        task_sleep_ms(400);
-    }
-    LOG("demo-logger: completed");
-    task_exit(0);
-}
-
-void kmain(void)
-{
-    tasking_system_init();
-
-    TaskProcess* kernel_process = task_process_kernel();
-    if (!kernel_process)
-    {
-        ERROR("task: failed to acquire kernel process");
-        return;
-    }
-
-    TaskThread* root = task_thread_create_kernel(kernel_process, "kernel-root", kernel_root_thread, NULL, 0);
-    if (!root)
-    {
-        ERROR("task: failed to spawn kernel root thread");
-        return;
-    }
-
-    if (!task_thread_create_kernel(kernel_process, "demo-worker", demo_worker_thread, NULL, 0))
-    {
-        WARN("task: demo worker thread not started");
-    }
-
-    if (!task_thread_create_kernel(kernel_process, "demo-logger", demo_logger_thread, NULL, 0))
-    {
-        WARN("task: demo logger thread not started");
-    }
-
-    LOG("Bootstrap thread yielding to scheduler");
-
-    gfx_draw_task();
-
-    task_exit(0);
-}
-
