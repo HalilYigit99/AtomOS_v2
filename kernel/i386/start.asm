@@ -8,7 +8,6 @@ extern idt_ptr
 extern __boot_kernel_start
 extern gdtr_i386
 extern detect_erms
-extern kmain
 extern __stack_end
 
 extern page_directory
@@ -50,8 +49,6 @@ _start:
     call __boot_kernel_start ; Call the boot kernel start function
 
     sti
-
-    call kmain ; Call the main kernel function
 
 .halt:
     hlt ; Halt the CPU

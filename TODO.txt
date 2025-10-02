@@ -1,0 +1,24 @@
+
+BIOS ve UEFI için boot yaklaşımlarını farklılaştırıcağız. 
+
+Ayrı fonksiyonlar yazacağız.
+
+BIOS dan boot ederken debug stream olarak eski UART kullanacağız.
+UEFI den boot ederken debug stream olarak EFI GOP hizmetleri ile yapılmış temel terminali kullanacağız.
+
+YENİ EKLENECEK MODÜLLER:
+- UEFI GOP TERMINAL
+- YENİ BİR TERMİNAL AYARÜZYÜ
+- YENİ BİR TERMİNAL ARABİRİMİ
+
+YENİ EKLENECEK FONKSİYONLAR:
+- UEFI GOP İLE TEMEL TERMINAL OLUŞTURMA
+- UEFI GOP İLE TEMEL TERMINAL ÜZERİNDEN EKRANA YAZMA
+- UEFI GOP İLE TEMEL TERMINAL ÜZERİNDEN EKRANA YAZMA (RENKLİ)
+- UEFI GOP İLE TEMEL TERMINAL ÜZERİNDEN EKRANI TEMİZLEME
+- UEFI GOP İLE TEMEL TERMINAL ÜZERİNDEN İMLEÇ KONUMU AYARLAMA
+
+SONRAKİ HEDEFLER:
+- PATH PARSER İLE CİHAZLARI /dev/ ALTINDA GÖSTERME
+
+

@@ -21,6 +21,8 @@ extern OutputStream* currentOutputStream;
 
 void gos_addStream(OutputStream* stream);
 
+extern OutputStream nullOutputStream;
+
 #ifdef __cplusplus
 }
 #endif

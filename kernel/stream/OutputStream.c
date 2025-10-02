@@ -3,8 +3,9 @@
 #include <util/VPrintf.h>
 
 extern OutputStream uartOutputStream;
+extern OutputStream genericOutputStream;
 
-OutputStream* currentOutputStream = &uartOutputStream;
+OutputStream* currentOutputStream = &genericOutputStream;
 
 List* outputStreams = NULL;
 
@@ -107,4 +108,33 @@ OutputStream genericOutputStream = {
     .WriteString = gos_WriteString,
     .print = gos_print,
     .printf = gos_printf
+};
+
+void nullOutputStream_Open() {}
+
+void nullOutputStream_Close() {}
+
+void nullOutputStream_WriteChar(char c) {
+    (void)c; // Suppress unused parameter warning
+}
+
+void nullOutputStream_WriteString(const char* str) {
+    (void)str; // Suppress unused parameter warning
+}
+
+void nullOutputStream_print(const char* str) {
+    (void)str; // Suppress unused parameter warning
+}
+
+void nullOutputStream_printf(const char* format, ...) {
+    (void)format; // Suppress unused parameter warning
+}
+
+OutputStream nullOutputStream = {
+    .Open = nullOutputStream_Open,
+    .Close = nullOutputStream_Close,
+    .WriteChar = nullOutputStream_WriteChar,
+    .WriteString = nullOutputStream_WriteString,
+    .print = nullOutputStream_print,
+    .printf = nullOutputStream_printf
 };

@@ -3,9 +3,10 @@
 #include <list.h>
 
 extern DebugStream uartDebugStream;
+extern DebugStream genericDebugStream;
 
 List* debugStreams = NULL;
-DebugStream* debugStream = &uartDebugStream;
+DebugStream* debugStream = &genericDebugStream;
 
 void gds_addStream(DebugStream* stream)
 {
@@ -96,4 +97,37 @@ DebugStream genericDebugStream = {
     .WriteString = gds_WriteString,
     .print = gds_print,
     .printf = gds_printf
+};
+
+void nullDebugStream_Open() {
+    // Do nothing
+}
+
+void nullDebugStream_Close() {
+    // Do nothing
+}
+
+void nullDebugStream_WriteChar(char c) {
+    // Do nothing
+}
+
+void nullDebugStream_WriteString(const char* str) {
+    // Do nothing
+}
+
+void nullDebugStream_print(const char* str) {
+    // Do nothing
+}
+
+void nullDebugStream_printf(const char* format, ...) {
+    // Do nothing
+}
+
+DebugStream nullDebugStream = {
+    .Open = nullDebugStream_Open,
+    .Close = nullDebugStream_Close,
+    .WriteChar = nullDebugStream_WriteChar,
+    .WriteString = nullDebugStream_WriteString,
+    .print = nullDebugStream_print,
+    .printf = nullDebugStream_printf
 };

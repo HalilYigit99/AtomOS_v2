@@ -46,6 +46,8 @@ extern DebugStream* debugStream;
 
 void gds_addStream(DebugStream* stream);
 
+extern DebugStream nullDebugStream;
+
 #ifdef __cplusplus
 }
 #endif
