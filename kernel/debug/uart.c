@@ -123,3 +123,12 @@ DebugStream uartDebugStream = {
     .print = uart_print,
     .printf = uart_printf
 };
+
+bool uart_supported() {
+    // Check for UART support by probing COM1 port
+    #define COM1_PORT 0x3F8
+    /* Try to read the Line Status Register */
+    uint8_t lsr = inb(COM1_PORT + 5);
+    /* If we can read a valid value, assume UART is present */
+    return (lsr != 0xFF);
+}

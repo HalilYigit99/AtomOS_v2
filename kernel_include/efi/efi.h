@@ -8,6 +8,22 @@ extern "C" {
 #include <stddef.h>
 #include <stdbool.h>
 
+#ifndef L
+    
+    /* 16-bit (UTF-16 / UCS-2) string literal helper for EFI console output */
+    #if (defined(__cplusplus) && __cplusplus >= 201103L) || \
+        (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L)
+        /* C++11 / C11: use char16_t literal and cast */
+        #define L(str) ((const uint16_t*)u##str)
+    #elif defined(__WCHAR_MAX__) && (__WCHAR_MAX__ == 0xFFFFu || __WCHAR_MAX__ == 0xFFFF)
+        /* Fallback: wchar_t is 16-bit on this platform */
+        #define L(str) ((const uint16_t*)L##str)
+    #else
+        #error "Cannot create 16-bit string literals: need C11/C++11 (char16_t) or 16-bit wchar_t."
+    #endif
+
+#endif
+
 /* Platform algılama ve UINTN/INTN tanımlamaları */
 #if defined(__x86_64__) || defined(__aarch64__) || defined(_M_X64) || defined(_M_ARM64)
     #define EFI_64BIT

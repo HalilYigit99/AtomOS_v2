@@ -158,6 +158,12 @@ typedef enum {
 /* Initialize PAT MSR and internal structures (idempotent). */
 bool arch_paging_pat_init(void);
 
+/* Initialize IA32 MTRR interface (idempotent). */
+bool arch_mtrr_init(void);
+
+/* Configure an MTRR range to the requested memory type (best-effort). */
+bool arch_mtrr_set_range(uintptr_t phys_start, size_t length, arch_paging_memtype_t type);
+
 /* Set memory type attributes for an existing mapped physical region.
  * phys_start / length: physical address range (will be page-aligned internally)
  * type: one of arch_paging_memtype_t

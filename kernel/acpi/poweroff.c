@@ -2,7 +2,8 @@
 #include <acpi/acpi_new.h>
 #include <acpi/acpi_old.h>
 #include <acpi/fadt.h>
-
+#include <boot/multiboot2.h>
+#include <efi/efi.h>
 #include <debug/debug.h>
 #include <arch.h>
 
@@ -180,6 +181,12 @@ static void acpi_enter_s5_via_ports(uint16_t pm1a, uint16_t pm1b, uint8_t slp_ty
 }
 
 void acpi_poweroff() {
+    // Is EFI boot?
+    if (mb2_is_efi_boot) {
+        EFI_SYSTEM_TABLE* systab = efi_system_table;
+        systab->runtime_services->reset_system(EfiResetShutdown, 0, 0, NULL);
+    }
+
     // Check if the ACPI is available
     
     if (acpi_version < 2)
@@ -266,7 +273,11 @@ void acpi_restart()
     // Önce ACPI 2.0+ FADT ResetReg varsa onu kullan, sonra chipset reset portu (0xCF9),
     // en sonda 8042 klavye denetleyicisi ile reset dene.
 
-    asm volatile ("cli");
+    if (mb2_is_efi_boot)
+    {
+        EFI_SYSTEM_TABLE* systab = efi_system_table;
+        systab->runtime_services->reset_system(EfiResetWarm, 0,0, NULL);
+    }
 
     const acpi_fadt_unified* fadt = (const acpi_fadt_unified*)acpi_get_fadt();
     if (fadt) {

@@ -4,6 +4,41 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+/* -------------------------------------------------------------------------- */
+/* Low-level helpers                                                          */
+/* -------------------------------------------------------------------------- */
+
+static inline uint64_t rdmsr(uint32_t msr)
+{
+	uint32_t lo, hi;
+	__asm__ __volatile__("rdmsr" : "=a"(lo), "=d"(hi) : "c"(msr));
+	return ((uint64_t)hi << 32) | lo;
+}
+
+static inline void wrmsr(uint32_t msr, uint64_t value)
+{
+	uint32_t lo = (uint32_t)(value & 0xFFFFFFFFu);
+	uint32_t hi = (uint32_t)(value >> 32);
+	__asm__ __volatile__("wrmsr" :: "c"(msr), "a"(lo), "d"(hi));
+}
+
+static inline uint64_t read_cr0(void)
+{
+	uint64_t value;
+	__asm__ __volatile__("mov %%cr0, %0" : "=r"(value));
+	return value;
+}
+
+static inline void write_cr0(uint64_t value)
+{
+	__asm__ __volatile__("mov %0, %%cr0" :: "r"(value) : "memory");
+}
+
+static inline void wbinvd(void)
+{
+	__asm__ __volatile__("wbinvd" ::: "memory");
+}
+
 // Page table entry flags
 #define PTE_P   (1ull << 0)  // Present
 #define PTE_RW  (1ull << 1)  // Read/Write
@@ -41,10 +76,240 @@ static inline void write_cr3(uint64_t phys)
 
 static bool g_pat_initialized = false;
 
-bool arch_paging_pat_init(void) {
+#define IA32_PAT_MSR 0x00000277u
+
+static inline uint64_t pat_set_entry(uint64_t pat, unsigned index, uint8_t value)
+{
+	uint64_t mask = 0xFFull << (index * 8);
+	return (pat & ~mask) | ((uint64_t)value << (index * 8));
+}
+
+bool arch_paging_pat_init(void)
+{
 	if (g_pat_initialized) return true;
-	/* TODO: Detect CPUID.PAT and write IA32_PAT MSR. For now mark initialized. */
+
+	size_t eax = 0, ebx = 0, ecx = 0, edx = 0;
+	arch_cpuid(0x00000001u, &eax, &ebx, &ecx, &edx);
+	bool has_pat = (edx & (1u << 16)) != 0;
+	if (!has_pat) {
+		return false;
+	}
+
+	uint64_t pat = rdmsr(IA32_PAT_MSR);
+	pat = pat_set_entry(pat, 0, 0x04); // WB
+	pat = pat_set_entry(pat, 1, 0x06); // WT
+	pat = pat_set_entry(pat, 2, 0x02); // UC-
+	pat = pat_set_entry(pat, 3, 0x00); // UC
+	pat = pat_set_entry(pat, 4, 0x01); // WC (used via PAT bit)
+	pat = pat_set_entry(pat, 5, 0x05); // WP (PAT|PWT)
+	pat = pat_set_entry(pat, 6, 0x02); // UC-
+	pat = pat_set_entry(pat, 7, 0x00); // UC
+	wrmsr(IA32_PAT_MSR, pat);
+
 	g_pat_initialized = true;
+	return true;
+}
+
+/* -------------------------------------------------------------------------- */
+/* MTRR management (amd64)                                                    */
+/* -------------------------------------------------------------------------- */
+
+#define IA32_MTRR_CAP_MSR      0x000000FEu
+#define IA32_MTRR_DEF_TYPE_MSR 0x000002FFu
+#define IA32_MTRR_PHYSBASE(n) (0x00000200u + ((n) * 2u))
+#define IA32_MTRR_PHYSMASK(n) (0x00000200u + ((n) * 2u) + 1u)
+#define IA32_MTRR_DEF_ENABLE   (1ull << 11)
+#define IA32_MTRR_DEF_FIXED    (1ull << 10)
+
+static bool     g_mtrr_initialized = false;
+static bool     g_mtrr_available   = false;
+static uint8_t  g_mtrr_var_count   = 0;
+static uint8_t  g_mtrr_phys_bits   = 36; /* sensible default */
+static uint64_t g_mtrr_usage_mask  = 0;
+
+static inline uint8_t bitcount64(uint64_t value)
+{
+	uint8_t count = 0;
+	while (value) {
+		value &= (value - 1ull);
+		count++;
+	}
+	return count;
+}
+
+static inline uint64_t mtrr_phys_mask_bits(void)
+{
+	if (g_mtrr_phys_bits >= 52) {
+		return 0xFFFFFFFFFFFFF000ull; // clamp to architectural max (52 bits)
+	}
+	uint64_t usable = (1ull << g_mtrr_phys_bits) - 1ull;
+	return usable & ~0xFFFull;
+}
+
+static int mtrr_acquire_slot(void)
+{
+	for (uint8_t idx = 0; idx < g_mtrr_var_count; ++idx) {
+		uint64_t bit = 1ull << idx;
+		if ((g_mtrr_usage_mask & bit) == 0) {
+			g_mtrr_usage_mask |= bit;
+			return idx;
+		}
+	}
+	return -1;
+}
+
+static void mtrr_release_slot(int slot)
+{
+	if (slot < 0) return;
+	uint64_t bit = 1ull << (uint8_t)slot;
+	g_mtrr_usage_mask &= ~bit;
+}
+
+static uint8_t arch_mtrr_type_from_memtype(arch_paging_memtype_t type)
+{
+	switch (type) {
+		case ARCH_PAGING_MT_WC: return 0x01; /* Write-Combining */
+		case ARCH_PAGING_MT_UC: return 0x00; /* Uncacheable */
+		default: return 0xFF;  /* unsupported */
+	}
+}
+
+bool arch_mtrr_init(void)
+{
+	if (g_mtrr_initialized) {
+		return g_mtrr_available;
+	}
+
+	size_t eax = 0, ebx = 0, ecx = 0, edx = 0;
+	arch_cpuid(0x00000001u, &eax, &ebx, &ecx, &edx);
+	bool has_mtrr = (edx & (1u << 12)) != 0;
+	if (!has_mtrr) {
+		g_mtrr_initialized = true;
+		g_mtrr_available = false;
+		return false;
+	}
+
+	uint64_t cap = rdmsr(IA32_MTRR_CAP_MSR);
+	g_mtrr_var_count = (uint8_t)(cap & 0xFFu);
+	g_mtrr_available = g_mtrr_var_count != 0;
+
+	arch_cpuid(0x80000000u, &eax, &ebx, &ecx, &edx);
+	if (eax >= 0x80000008u) {
+		arch_cpuid(0x80000008u, &eax, &ebx, &ecx, &edx);
+		g_mtrr_phys_bits = (uint8_t)(eax & 0xFFu);
+		if (g_mtrr_phys_bits < 36) g_mtrr_phys_bits = 36; /* enforce minimum */
+	} else {
+		g_mtrr_phys_bits = 36;
+	}
+
+	g_mtrr_usage_mask = 0;
+	g_mtrr_initialized = true;
+	return g_mtrr_available;
+}
+
+static void mtrr_program_slot(int slot, uintptr_t base, uint64_t size, uint8_t type)
+{
+	uint64_t phys_mask_bits = mtrr_phys_mask_bits();
+	uint64_t base_val = ((uint64_t)base & phys_mask_bits) | type;
+	uint64_t mask_val = ((~(size - 1ull) & phys_mask_bits) | 0x800ull);
+	wrmsr(IA32_MTRR_PHYSBASE(slot), base_val);
+	wrmsr(IA32_MTRR_PHYSMASK(slot), mask_val);
+}
+
+static uint64_t largest_power_of_two_aligned(uint64_t base, uint64_t length)
+{
+	/* start with largest power-of-two <= length */
+	unsigned leading = (unsigned)__builtin_clzll(length);
+	unsigned highest_bit = (unsigned)(63 - leading);
+	uint64_t candidate = 1ull << highest_bit;
+	/* ensure base alignment */
+	while (candidate > 0 && (base & (candidate - 1ull)) != 0) {
+		candidate >>= 1;
+	}
+	return candidate;
+}
+
+bool arch_mtrr_set_range(uintptr_t phys_start, size_t length, arch_paging_memtype_t type)
+{
+	if (length == 0) return true;
+	if (!arch_mtrr_init()) return false;
+	if (!g_mtrr_available) return false;
+
+	uint8_t mtrr_type = arch_mtrr_type_from_memtype(type);
+	if (mtrr_type == 0xFF) return false;
+
+	uintptr_t start = phys_start & ~0xFFFull;
+	uintptr_t end   = (phys_start + length + 0xFFFull) & ~0xFFFull;
+	size_t remaining = (size_t)(end - start);
+	if (remaining == 0) return true;
+
+	uint64_t phys_limit_mask = mtrr_phys_mask_bits();
+	uint64_t max_address = phys_limit_mask | 0xFFFull;
+	if (start > max_address) {
+		return false;
+	}
+	if (remaining - 1ull > (max_address - start)) {
+		return false;
+	}
+
+	typedef struct {
+		uintptr_t base;
+		uint64_t size;
+	} mtrr_chunk_t;
+	mtrr_chunk_t chunks[64];
+	uintptr_t cursor = start;
+	size_t chunk_count = 0;
+	uint64_t temp_remaining = remaining;
+	while (temp_remaining > 0) {
+		uint64_t chunk = largest_power_of_two_aligned(cursor, temp_remaining);
+		if (chunk < 0x1000ull) chunk = 0x1000ull;
+		if (chunk > temp_remaining) chunk = temp_remaining;
+		if (chunk_count >= sizeof(chunks) / sizeof(chunks[0])) {
+			return false; /* too fragmented for current helper */
+		}
+		chunks[chunk_count].base = cursor;
+		chunks[chunk_count].size = chunk;
+		chunk_count++;
+		cursor += chunk;
+		temp_remaining -= chunk;
+	}
+
+	uint8_t used_slots = bitcount64(g_mtrr_usage_mask);
+	uint8_t available_slots = (g_mtrr_var_count > used_slots) ? (g_mtrr_var_count - used_slots) : 0;
+	if (chunk_count > available_slots) {
+		return false;
+	}
+
+	int slots[64];
+	for (size_t i = 0; i < chunk_count; ++i) {
+		slots[i] = mtrr_acquire_slot();
+		if (slots[i] < 0) {
+			for (size_t j = 0; j < i; ++j) mtrr_release_slot(slots[j]);
+			return false;
+		}
+	}
+
+	uint64_t cr0 = read_cr0();
+	uint64_t cr0_cache_off = cr0 | (1ull << 30) | (1ull << 29);
+	write_cr0(cr0_cache_off);
+	wbinvd();
+
+	uint64_t def_type = rdmsr(IA32_MTRR_DEF_TYPE_MSR);
+	bool was_enabled = (def_type & IA32_MTRR_DEF_ENABLE) != 0;
+	uint64_t disabled_type = def_type & ~(IA32_MTRR_DEF_ENABLE | IA32_MTRR_DEF_FIXED);
+	wrmsr(IA32_MTRR_DEF_TYPE_MSR, disabled_type);
+
+	for (size_t i = 0; i < chunk_count; ++i) {
+		mtrr_program_slot(slots[i], chunks[i].base, (size_t)chunks[i].size, mtrr_type);
+	}
+
+	wbinvd();
+	if (was_enabled) {
+		wrmsr(IA32_MTRR_DEF_TYPE_MSR, def_type);
+	} else {
+		wrmsr(IA32_MTRR_DEF_TYPE_MSR, disabled_type);
+	}
+	write_cr0(cr0);
 	return true;
 }
 
@@ -182,4 +447,3 @@ void amd64_map_identity_low_4g(void)
 
     write_cr3((uint64_t)(uintptr_t)pml4);
 }
-

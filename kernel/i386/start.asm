@@ -50,6 +50,9 @@ _start:
 
     sti
 
+extern Main
+    call Main
+
 .halt:
     hlt ; Halt the CPU
     jmp .halt ; Loop indefinitely
