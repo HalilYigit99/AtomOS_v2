@@ -18,8 +18,6 @@ void __assert_v1(const char* condition, const char* file, int line, const char* 
     LOG("ASSERTION FAILED: %s\nFile: %s, Line: %d\nMessage: %s\n", condition, file, line, message);
     LOG("Disabling interrupts...");
 
-    gfx_draw_task();
-
     if (acpi_version != 0)
     {
         for (size_t i = 0; i < 0xFFFFFFFF; i++) asm volatile ("pause"); // Basit bir bekleme döngüsü

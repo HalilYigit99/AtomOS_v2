@@ -28,7 +28,6 @@ request_tag_start:
     dd 20     ; MULTIBOOT_TAG_TYPE_EFI64_IH
 request_tag_end:
 
-
     align 8
     .video_tag:
         dw 5        ; Type (framebuffer tag)
@@ -41,7 +40,7 @@ request_tag_end:
     align 8
     .efi_boot_services_tag:
         dw 7
-        dw 0
+        dw 1        ; Optional: ignored when booted via legacy BIOS
         dd 8
 
     align 8

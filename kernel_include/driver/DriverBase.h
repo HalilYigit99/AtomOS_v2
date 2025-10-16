@@ -38,6 +38,7 @@ void system_driver_unregister(DriverBase* driver);
 
 void system_driver_enable(DriverBase* driver);
 void system_driver_disable(DriverBase* driver);
+bool system_driver_is_available(DriverBase* driver);
 
 #ifdef __cplusplus
 }

@@ -319,8 +319,16 @@ static void __gfxterm_draw_cursor(GFXTerminal* term, bool show)
     term->framebuffer->isDirty = true;
 }
 
+extern List* gfx_buffers;
+extern void gfx_init();
+
 GFXTerminal *gfxterm_create(const char *name)
 {
+    if (!gfx_buffers)
+    {
+        gfx_init();
+    }
+    
     // Removed unnecessary large allocation test
 
     if (!terminals)

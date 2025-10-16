@@ -29,19 +29,21 @@ extern DebugStream* debugStream;
 // NOTE: We add an empty variadic arg (##__VA_ARGS__) so that calls without
 // extra arguments compile cleanly in GCC/Clang.
 
+extern uint64_t uptimeMs;
+
 #define LOG(fmt, ...) \
     do { \
-        debugStream->printf("[%s:%d] [LOG] " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__); \
+        debugStream->printf("[%llu.%llu] [%s:%d] [LOG] " fmt "\n", (uint64_t)(uptimeMs / 1000), (uint64_t)(uptimeMs % 1000), __FILE__, __LINE__, ##__VA_ARGS__); \
     } while (0)
 
 #define WARN(fmt, ...) \
     do { \
-        debugStream->printf("[%s:%d] [WARN] " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__); \
+        debugStream->printf("[%llu.%llu] [%s:%d] [WARN] " fmt "\n", (uint64_t)(uptimeMs / 1000), (uint64_t)(uptimeMs % 1000), __FILE__, __LINE__, ##__VA_ARGS__); \
     } while (0)
 
 #define ERROR(fmt, ...) \
     do { \
-        debugStream->printf("[%s:%d] [ERROR] " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__); \
+        debugStream->printf("[%llu.%llu] [%s:%d] [ERROR] " fmt "\n", (uint64_t)(uptimeMs / 1000), (uint64_t)(uptimeMs % 1000), __FILE__, __LINE__, ##__VA_ARGS__); \
     } while (0)
 
 void gds_addStream(DebugStream* stream);

@@ -181,6 +181,9 @@ static void acpi_enter_s5_via_ports(uint16_t pm1a, uint16_t pm1b, uint8_t slp_ty
 }
 
 void acpi_poweroff() {
+
+    LOG("Shutdown process started!");
+
     // Is EFI boot?
     if (mb2_is_efi_boot) {
         EFI_SYSTEM_TABLE* systab = efi_system_table;
@@ -223,10 +226,6 @@ void acpi_poweroff() {
         acpi_get_pm1_ports(fadt, &pm1a, &pm1b);
         acpi_enter_s5_via_ports(pm1a, pm1b, slp_typ_a, slp_typ_b);
 
-        // Sistem kapanana kadar bekle, olmadıysa CPU'yu durdur
-        while (1) {
-            asm volatile ("hlt");
-        }
     }else 
     {
         // ACPI 2.0+ için S5 (soft-off) uygula: XDsdt/XPm1* ve _S5_
@@ -260,10 +259,28 @@ void acpi_poweroff() {
 
         acpi_enter_s5_via_ports(pm1a, pm1b, slp_typ_a, slp_typ_b);
 
-        // Bekleme: kapanmazsa CPU'yu durdur
-        while (1) {
-            asm volatile ("cli; hlt");
-        }
+    }
+
+    // Busy wait loop; sistem kapanmalı
+    for (int i = 0; i < 1000000; ++i) io_wait();
+
+    ERROR("System did not power off; Trying keyboard controller method");
+
+    // 8042 klavye denetleyici reseti: komut 0xFE
+    // Giriş tamponu boşalana kadar bekle (bit1 = IBF)
+    for (int i = 0; i < 1000000; ++i)
+    {
+        if ((inb(0x64) & 0x02) == 0) break;
+        io_wait();
+    }
+    outb(0x64, 0xFE);
+
+    // Eğer hiçbir yöntem çalışmazsa CPU'yu durdur
+    ERROR("System did not power off; halting");
+    while (1) {
+        asm volatile ("hlt");
+        asm volatile ("pause");
+        asm volatile ("nop");
     }
 
 }

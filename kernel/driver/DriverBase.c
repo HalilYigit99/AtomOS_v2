@@ -4,6 +4,21 @@
 
 List* system_driver_list = NULL;
 
+bool system_driver_is_available(DriverBase* driver) {
+    if (system_driver_list == NULL || driver == NULL) {
+        return false;
+    }
+
+    ListNode* current = system_driver_list->head;
+    while (current) {
+        if (current->data == driver) {
+            return true;
+        }
+        current = current->next;
+    }
+    return false;
+}
+
 void system_driver_register(DriverBase* driver) {
     if (system_driver_list == NULL) {
         system_driver_list = List_Create();

@@ -5,6 +5,7 @@
 #include <driver/efi_gop/efi_gop.h>
 #include <debug/debug.h>
 #include <driver/DriverBase.h>
+#include <arch.h>
 #include <graphics/gfx.h>
 
 ScreenInfo main_screen = {0};
@@ -60,6 +61,7 @@ void screen_init()
         main_screen.mode->bpp,
         main_screen.mode->pitch,
         main_screen.mode->framebuffer);
+
 }
 
 extern void efi_gop_setVideoMode(ScreenInfo* screen, ScreenVideoModeInfo* mode);
