@@ -130,7 +130,7 @@ void efi_gop_enable()
 {
     if (!efi_gop_driver.enabled) {
         efi_gop_driver.enabled = true;
-        LOG("efi_gop: etkinleştirildi");
+        LOG("efi_gop: etkinlestirildi");
     }
 }
 

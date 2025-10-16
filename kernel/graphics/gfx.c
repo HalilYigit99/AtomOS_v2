@@ -16,17 +16,25 @@ gfx_buffer *screen_buffer;
 
 void gfx_draw_task();
 
+bool gfx_screen_has_buffer(gfx_buffer *buffer)
+{
+    if (!gfx_buffers)
+        return false;
+
+    return List_IndexOf(gfx_buffers, buffer) != -1;
+}
+
 void gfx_screen_register_buffer(gfx_buffer *buffer)
 {
     gfx_buffers_busy = true;
-    List_InsertAt(gfx_buffers, 0, buffer);
+    if (!gfx_screen_has_buffer(buffer)) List_InsertAt(gfx_buffers, 0, buffer);
     gfx_buffers_busy = false;
 }
 
 void gfx_screen_unregister_buffer(gfx_buffer *buffer)
 {
     gfx_buffers_busy = true;
-    List_Remove(gfx_buffers, buffer);
+    if (gfx_screen_has_buffer(buffer)) List_Remove(gfx_buffers, buffer);
     gfx_buffers_busy = false;
 }
 

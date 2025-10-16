@@ -112,7 +112,7 @@ bool ps2mouse_init(void) {
         WARN("PS/2 Mouse: Controller cmd (test port 2) failed");
         return false;
     }
-    if (!ps2_wait_output_full(100000)) {
+    if (!ps2_wait_output_full(500000)) {
         WARN("PS/2 Mouse: No response to port 2 test");
         return false;
     }
@@ -213,12 +213,18 @@ void ps2mouse_enable(void) {
     }
     if (!enabled) {
         // Veri raporlamayı aç ve ACK'yi kesme açmadan önce tüket
+        bool reporting_enabled = false;
         for (int tries = 0; tries < 3; ++tries) {
             if (!ps2_write_aux(0xF4)) continue; // Enable data reporting
             uint8_t ack;
             if (ps2_read_aux(&ack, 200000) && ack == 0xFA) {
+                reporting_enabled = true;
                 break;
             }
+        }
+        if (!reporting_enabled) {
+            WARN("PS/2 Mouse: Failed to enable reporting");
+            return;
         }
 
         packet_index = 0;
@@ -237,12 +243,17 @@ void ps2mouse_disable(void) {
     if (enabled) {
 
         // Disable data reporting
+        bool reporting_disabled = false;
         for (int tries = 0; tries < 3; ++tries) {
             if (!ps2_write_aux(0xF5)) continue; // Disable data reporting
             uint8_t ack;
             if (ps2_read_aux(&ack, 200000) && ack == 0xFA) {
+                reporting_disabled = true;
                 break;
             }
+        }
+        if (!reporting_disabled) {
+            WARN("PS/2 Mouse: Failed to disable reporting");
         }
 
         // Disable irq
@@ -260,20 +271,20 @@ void ps2mouse_isr_handler(void) {
     
     // Status register'ı oku
     uint8_t status = inb(PS2_STATUS_PORT);
-    
+
     // Veri var mı kontrol et
     if (!(status & PS2_STATUS_OUTPUT_FULL)) {
         goto _ret;
     }
-    
-    // Veriyi oku
-    uint8_t data = inb(PS2_DATA_PORT);
 
     // Mouse verisi mi kontrol et
     if (!(status & PS2_STATUS_AUX_DATA)) {
         goto _ret;
     }
-    
+
+    // Veriyi oku
+    uint8_t data = inb(PS2_DATA_PORT);
+
     // Packet topla
     packet_buffer[packet_index++] = data;
     
@@ -281,22 +292,20 @@ void ps2mouse_isr_handler(void) {
         uint8_t flags = packet_buffer[0];
         
         if (flags & PS2_MOUSE_ALWAYS_1) {
-            int8_t delta_x = packet_buffer[1];
-            int8_t delta_y = packet_buffer[2];
+            int delta_x = packet_buffer[1];
+            int delta_y = packet_buffer[2];
             
             if (!(flags & (PS2_MOUSE_X_OVERFLOW | PS2_MOUSE_Y_OVERFLOW))) {
                 if (flags & PS2_MOUSE_X_SIGN) {
-                    delta_x |= 0xFFFFFF00;
+                    delta_x |= ~0xFF;
                 }
                 if (flags & PS2_MOUSE_Y_SIGN) {
-                    delta_y |= 0xFFFFFF00;
+                    delta_y |= ~0xFF;
                 }
                 
-                delta_y = -delta_y;
-                
                 cursor_X += delta_x;
-                cursor_Y += delta_y;
-                
+                cursor_Y -= delta_y;
+
             }
         }
         

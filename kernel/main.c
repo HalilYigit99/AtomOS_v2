@@ -25,13 +25,9 @@ void Main(){
 
     gfx_draw_bitmap(screen_buffer, main_screen.mode->width / 2 - bitmap->size.width / 2, main_screen.mode->height / 2 - bitmap->size.height / 2, bitmap->pixels, bitmap->size.width, bitmap->size.height);
 
-    uint64_t end = uptimeMs + 10000;
-    while (uptimeMs < end)
-    {
-       
-    }
+    sleep_ms(5000);
 
-    gfx_screen_unregister_buffer(screen_buffer);
+    gfxterm_visible(debug_terminal, true);
 
     LOG("Shutting down...");
 

@@ -60,7 +60,6 @@ static int ps2kbd_stream_readBuffer(void* buffer, size_t size);
 static int ps2kbd_stream_available();
 static char ps2kbd_stream_peek();
 static void ps2kbd_stream_flush();
-static bool ps2_kbd_wait_ack(uint32_t timeout_ms);
 
 void ps2kbd_handler();
 
@@ -183,51 +182,35 @@ static uint8_t ps2_kbd_getScanCodeSet()
 {
     ps2_flush_output();
 
-    outb(PS2_DATA_PORT, PS2_KBD_CMD_SET_SCANCODE);
-    io_wait();
-    outb(PS2_DATA_PORT, 0x00); // 0 = get current set
-    ps2_kbd_wait_ack(100);
-
-    sleep_ms(1);
+    if (!ps2_kbd_send_expect_ack(PS2_KBD_CMD_SET_SCANCODE)) {
+        LOG("PS/2 Keyboard: failed to send get-scancode command");
+        return 0xFF;
+    }
+    if (!ps2_kbd_send_expect_ack(0x00)) {
+        LOG("PS/2 Keyboard: failed to request current scancode set");
+        return 0xFF;
+    }
 
     uint8_t current = 0xFF;
-
-    if (ps2_read_kbd(&current, 250))
-    {
-        LOG("PS/2 Keyboard: acknowledge did not arrived ( timeout )");
+    if (!ps2_read_kbd(&current, 250)) {
+        LOG("PS/2 Keyboard: failed to read current scancode set (timeout)");
+        return 0xFF;
     }
-
-    // Test for ack
-    if (current != 0xFA)
-    {
-        return current;
-    }
-    
-    if (ps2_read_kbd(&current, 250)) {
-        return current;
-    }
-    LOG("PS/2 Keyboard: failed to get current scancode set ( timeout )");
-    return 0xFF;
+    return current;
 }
 
-static void ps2_kbd_setScanCodeSet(uint8_t set)
+static bool ps2_kbd_setScanCodeSet(uint8_t set)
 {
     ps2_flush_output();
 
-    outb(PS2_DATA_PORT, PS2_KBD_CMD_SET_SCANCODE);
-    io_wait();
-    outb(PS2_DATA_PORT, set);
-
-    sleep_ms(1);
-}
-
-static bool ps2_kbd_wait_ack(uint32_t timeout_ms)
-{
-    uint8_t resp;
-    if (ps2_read_kbd(&resp, timeout_ms)) {
-        return resp == PS2_RESPONSE_ACK;
+    if (!ps2_kbd_send_expect_ack(PS2_KBD_CMD_SET_SCANCODE)) {
+        return false;
     }
-    return false;
+    if (!ps2_kbd_send_expect_ack(set)) {
+        return false;
+    }
+
+    return true;
 }
 
 static bool ps2kbd_init(void) {
@@ -333,8 +316,10 @@ static bool ps2kbd_init(void) {
 
     // 8) Set scancode set 2 and verify with small retry loop
     for (scancodeSetRetryCount = 0; scancodeSetRetryCount < 3 && !scancodeSetCorrect; ++scancodeSetRetryCount) {
-        ps2_kbd_setScanCodeSet(2);
-        ps2_kbd_wait_ack(100);
+        if (!ps2_kbd_setScanCodeSet(2)) {
+            LOG("PS/2 Keyboard: failed to send scancode set command, retrying...");
+            continue;
+        }
         uint8_t set = ps2_kbd_getScanCodeSet();
         if (set == 2) {
             scancodeSetCorrect = true;
