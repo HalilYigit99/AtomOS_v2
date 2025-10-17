@@ -16,9 +16,16 @@ extern gfx_buffer* hardware_buffer;
 
 extern DriverBase efi_gop_driver;
 
+Event* screen_modeChangeEvent = NULL;
+
 void screen_init()
 {
     screen_list = List_Create();
+
+    screen_modeChangeEvent = event_create("Screen Mode Change");
+    if (!screen_modeChangeEvent) {
+        PANIC("Failed to create screen mode change event");
+    }
 
     main_screen.id = 0;
     main_screen.name = "Main Screen";
@@ -97,6 +104,7 @@ void screen_changeVideoMode(ScreenInfo* screen, ScreenVideoModeInfo* mode)
         hardware_buffer->size.width = main_screen.mode->width;
         hardware_buffer->size.height = main_screen.mode->height;
         hardware_buffer->buffer = main_screen.mode->framebuffer;
+        event_invoke(screen_modeChangeEvent, screen);
     }else {
         WARN("screen_changeVideoMode: Changing video modes is not supported in BIOS mode");
     }

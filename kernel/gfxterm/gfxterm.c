@@ -10,6 +10,7 @@
 #include <list.h>
 #include <task/PeriodicTask.h>
 #include <graphics/screen.h>
+#include <util/formatf.h>
 
 // Scrollback ring buffer implementation (block-based, linear growth)
 // - Stores lines in fixed-size blocks to reduce realloc/memmove and fragmentation.
@@ -423,6 +424,7 @@ GFXTerminal *gfxterm_create(const char *name)
         }
         periodic_task_start(gfxterm_task);
         gfxRedrawTaskActive = true;
+
     }
 
     return term;
@@ -876,6 +878,12 @@ void gfxterm_resize(GFXTerminal *term, gfx_size newSizeInChars)
 {
     if (!term)
         return;
+
+    // Check for resize event
+    if (!term->onTerminalResize)
+    {
+        term->onTerminalResize = event_create(formatf("GFXTerminal Resize Event ( terminal name: %s)", term->name));
+    }
 
     // Suppress global flush during resize to avoid mid-frame artifacts
     bool __prev_suppress = false;

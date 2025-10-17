@@ -8,6 +8,7 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 #include <list.h>
+#include <event/event.h>
 
 typedef struct {
     uint32_t mode_number;
@@ -29,6 +30,12 @@ typedef struct {
 extern ScreenInfo main_screen;
 
 extern List* screen_list;
+
+/*
+    Event invoked when the screen video mode changes.
+    The event data is a pointer to the ScreenInfo whose mode has changed.
+*/
+extern Event* screen_modeChangeEvent;
 
 extern void screen_changeVideoMode(ScreenInfo* screen, ScreenVideoModeInfo* mode);
 

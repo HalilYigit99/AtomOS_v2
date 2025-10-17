@@ -8,6 +8,7 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 
+#include <event/event.h>
 #include <stream/OutputStream.h>
 #include <graphics/types.h>
 
@@ -51,6 +52,8 @@ typedef struct {
     void*  sb_blocks;               // internal block list (opaque to callers)
     size_t sb_blocks_count;         // number of allocated blocks
     size_t sb_blocks_capacity;      // capacity of block pointer array
+
+    Event* onTerminalResize;
 
 } GFXTerminal;
 
