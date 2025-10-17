@@ -2,6 +2,7 @@
 #include <acpi/acpi.h>
 #include <debug/debug.h>
 #include <arch.h>
+#include <memory/mmio.h>
 
 /* APIC log kategorileri */
 #ifdef APIC_DEBUG
@@ -39,6 +40,7 @@ static inline void wrmsr(uint32_t msr, uint64_t value)
 void lapic_set_base(uintptr_t phys)
 {
     lapic_base_phys = phys;
+    (void)mmio_configure_region(phys, 4096u);
     lapic_mmio = (volatile uint32_t*)(phys);
     APIC_LOG_G("LAPIC base set: %p", (void*)phys);
 }

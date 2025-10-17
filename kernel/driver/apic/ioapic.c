@@ -1,5 +1,6 @@
 #include <driver/apic/apic.h>
 #include <debug/debug.h>
+#include <memory/mmio.h>
 
 /* APIC log kategorileri */
 #ifdef APIC_DEBUG
@@ -34,6 +35,7 @@ void ioapic_set_base(uintptr_t phys, uint32_t gsi_base)
             return;
         }
     }
+    (void)mmio_configure_region(phys, 4096u);
     s_ioapics[s_ioapic_count].mmio = (volatile uint8_t*)phys;
     s_ioapics[s_ioapic_count].gsi_base = gsi_base;
     // read version to determine redirection entries

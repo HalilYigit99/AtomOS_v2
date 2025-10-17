@@ -1,7 +1,7 @@
 #include <util/formatf.h>
 #include <stdarg.h>
-#include <VPrintf.h>
-#include <string.h>
+#include <util/VPrintf.h>
+#include <util/string.h>
 #include <memory/memory.h>
 #include <sleep.h>
 

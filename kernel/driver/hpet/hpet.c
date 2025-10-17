@@ -7,6 +7,7 @@
 #include <acpi/acpi_new.h>
 #include <irq/IRQ.h>
 #include <debug/debug.h>
+#include <memory/mmio.h>
 #include <list.h>
 
 // ---- HPET registers & helpers ----
@@ -212,7 +213,9 @@ static bool hpet_init()
         return false;
     }
 
-    s_hpet_mmio = (volatile uint64_t*)(uintptr_t)hpet->BaseAddress.Address;
+    uintptr_t base_phys = (uintptr_t)hpet->BaseAddress.Address;
+    (void)mmio_configure_region(base_phys, 4096u);
+    s_hpet_mmio = (volatile uint64_t*)base_phys;
     if (!s_hpet_mmio) {
         ERROR("HPET: MMIO base is NULL");
         return false;

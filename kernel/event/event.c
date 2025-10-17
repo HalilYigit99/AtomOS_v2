@@ -1,5 +1,6 @@
 #include <event/event.h>
 #include <memory/memory.h>
+#include <util/string.h>
 
 Event* event_create(const char* name) {
     Event* event = (Event*)malloc(sizeof(Event));
@@ -28,14 +29,14 @@ void event_register_callback(Event* event, EventCallback callback) {
     if (!event || !callback) {
         return;
     }
-    List_Add(&event->callbacks, callback);
+    List_Add(event->callbacks, callback);
 }
 
 void event_unregister_callback(Event* event, EventCallback callback) {
     if (!event || !callback) {
         return;
     }
-    List_Remove(&event->callbacks, callback);
+    List_Remove(event->callbacks, callback);
 }
 
 void event_invoke(Event* event, void* context) {
