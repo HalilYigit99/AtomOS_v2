@@ -527,7 +527,7 @@ void *pmm_alloc(size_t sizeInKB)
         return (void *)(uintptr_t)alloc_region->base;
     }
 
-    ERROR("pmm_alloc: no suitable block found for sizeInKB=%zu", sizeInKB);
+    ERROR("pmm_alloc: no suitable block found for sizeInKB=%08u", (uint32_t)sizeInKB);
     return NULL; // uygun blok yok
 }
 

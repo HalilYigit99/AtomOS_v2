@@ -49,6 +49,8 @@ extern void i386_exception_29_isr();
 extern void i386_exception_30_isr();
 extern void i386_exception_31_isr();
 
+extern void acpi_restart();
+
 static const char* const exception_names[32] = {
     "Divide Error",
     "Debug",
@@ -134,10 +136,10 @@ static void exception_put_char(char c)
         }
     }
 
-    if (g_active_exception_output->use_uart)
-    {
-        uart_write_char(c);
-    }
+    // if (g_active_exception_output->use_uart)
+    // {
+    //     uart_write_char(c);
+    // }
 }
 
 static void exception_vprintf(exception_output_ctx_t* ctx, const char* fmt, va_list args)
@@ -162,16 +164,16 @@ static exception_output_ctx_t exception_prepare_output(void)
 {
     exception_output_ctx_t ctx = {0};
 
-    if (debugterm_is_ready() || debugterm_ensure_ready())
+    if (debugterm_is_ready() && debugterm_ensure_ready())
     {
         ctx.use_gfx = true;
     }
 
-    if (!ctx.use_gfx)
-    {
-        uart_open();
-        ctx.use_uart = true;
-    }
+    // if (!ctx.use_gfx)
+    // {
+    //     uart_open();
+    //     ctx.use_uart = true;
+    // }
 
     return ctx;
 }
@@ -321,11 +323,11 @@ void i386_processor_exceptions_handle(uint8_t exceptionNumber,
     const char* exceptionName = get_exception_name(exceptionNumber);
     exception_output_ctx_t out = exception_prepare_output();
 
-    if (!out.use_gfx && !out.use_uart)
-    {
-        uart_open();
-        out.use_uart = true;
-    }
+    // if (!out.use_gfx && !out.use_uart)
+    // {
+    //     uart_open();
+    //     out.use_uart = true;
+    // }
 
 #if defined(__x86_64__)
     const uint64_t* regs = (const uint64_t*)gp_regs_ptr;
@@ -563,6 +565,8 @@ void i386_processor_exceptions_handle(uint8_t exceptionNumber,
     }
 
     WARN("CPU exception: vector=%u (%s)", exceptionNumber, exceptionName);
+
+    acpi_restart();
 
     ASSERT(isError(exceptionNumber) == false, "CPU EXCEPTION");
 }

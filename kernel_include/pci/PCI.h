@@ -52,7 +52,7 @@ typedef enum {
 
 typedef struct PCIBAR {
 	uint64_t address;    // Physical address for MMIO or I/O port base
-	uint32_t size;       // Optional, 0 if unknown
+	uint64_t size;       // Optional, 0 if unknown
 	bool     isIO;       // I/O space (true) vs Memory space (false)
 	bool     is64;       // 64-bit BAR
 	bool     prefetch;   // Prefetchable (for MMIO)
@@ -100,6 +100,7 @@ void PCI_Init(void);
 // This performs a delta update: existing PCIDevice pointers remain stable; new
 // devices are added; devices no longer present are removed and freed.
 void PCI_Rescan(bool enableBridges);
+void PCI_ConfigureMMIORegions(void);
 
 // Convenience helpers
 PCIDevice* PCI_FindByBDF(uint8_t bus, uint8_t device, uint8_t function);
@@ -126,4 +127,3 @@ char* PCI_GetSubClassName(uint8_t classCode, uint8_t subclass);
 #ifdef __cplusplus
 }
 #endif
-

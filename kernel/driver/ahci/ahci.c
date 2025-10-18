@@ -4,6 +4,7 @@
 #include <pci/PCI.h>
 #include <debug/debug.h>
 #include <memory/mmio.h>
+#include <stddef.h>
 #include <memory/memory.h>
 #include <memory/heap.h>
 #include <storage/BlockDevice.h>
@@ -678,7 +679,10 @@ static void ahci_probe_controller(void)
         return;
     }
 
-    uint32_t abar_length = dev->bars[5].size ? dev->bars[5].size : 4096u;
+    size_t abar_length = (dev->bars[5].size != 0 && dev->bars[5].size <= (uint64_t)SIZE_MAX)
+        ? (size_t)dev->bars[5].size
+        : 0;
+    if (abar_length == 0) abar_length = 4096u;
     (void)mmio_configure_region((uintptr_t)abar_phys, abar_length);
     volatile hba_mem_t* hba = (volatile hba_mem_t*)(uintptr_t)abar_phys; // identity mapped
     s_hba = hba;

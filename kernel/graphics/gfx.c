@@ -71,6 +71,7 @@ void gfx_init()
     }
 
     // Initialize screen buffer
+    LOG("Main screen width: %d , hegiht: %d", (size_t)main_screen.mode->width, (size_t)main_screen.mode->height);
     screen_buffer = gfx_create_buffer(main_screen.mode->width, main_screen.mode->height);
     gfx_clear_buffer(screen_buffer, (gfx_color){.argb = 0xFF000000}); // Clear screen to black
     gfx_screen_register_buffer(screen_buffer);

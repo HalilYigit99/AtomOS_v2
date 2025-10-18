@@ -70,7 +70,7 @@ SECTIONS
     .localHeap : ALIGN(4K)
     {
         __local_heap_start = .;
-        . = . + 0x400000; /* 4 MB */
+        . = . + 0x800000; /* 8 MB */
         __local_heap_end = .;
     }
     

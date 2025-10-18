@@ -7,6 +7,8 @@
 #include <irq/IRQ.h>
 #include <task/PeriodicTask.h>
 #include <efi/efi.h>
+#include <pci/PCI.h>
+#include <memory/memory.h>
 #include <gfxterm/gfxterm.h>
 
 extern DriverBase pic8259_driver;
@@ -59,6 +61,8 @@ void uptime_counter_task()
 void __boot_kernel_start(void)
 {
 
+    i386_processor_exceptions_init();
+
     heap_init();
 
     gds_addStream(&journald_debugStream);
@@ -69,10 +73,8 @@ void __boot_kernel_start(void)
 
     multiboot2_parse();
 
-    i386_processor_exceptions_init();
-
     LOG("Booting AtomOS Kernel");
-
+    
     if (mb2_is_efi_boot)
     {
         efi_init();
@@ -82,7 +84,28 @@ void __boot_kernel_start(void)
         bios_init();
     }
 
+    screen_init();
+
+    pmm_init();
+    LOG("Physical Memory Manager initialized");
+
     acpi_init();
+    LOG("ACPI initialized");
+
+    void* large_alloc = malloc(1024 * 1024 * 10); // 10 MB test
+    if (large_alloc)
+    {
+        free(large_alloc);
+        LOG("Large memory allocation test passed");
+    }
+    else
+    {
+        ERROR("Large memory allocation test failed");
+        asm volatile ("cli; hlt"); // Halt the system
+    }
+
+    PCI_Init();
+    LOG("PCI bus initialized");
 
     // APIC varsa onu kullan, yoksa PIC'e düş
     if (apic_supported())
@@ -102,6 +125,8 @@ void __boot_kernel_start(void)
     system_driver_enable(&pit_driver);
     irq_controller->acknowledge(0); // Acknowledge PIT IRQ
 
+    LOG("PIT enabled");
+
     if (hpet_supported()) {
         LOG("HPET supported – using HPET for system tick");
         system_driver_register(&hpet_driver);
@@ -117,10 +142,6 @@ void __boot_kernel_start(void)
     }
 
     asm volatile ("sti"); // Enable interrupts
-
-    pmm_init();
-
-    screen_init();
 
     gfx_init();
 

@@ -184,11 +184,11 @@ void acpi_poweroff() {
 
     LOG("Shutdown process started!");
 
-    // Is EFI boot?
-    if (mb2_is_efi_boot) {
-        EFI_SYSTEM_TABLE* systab = efi_system_table;
-        systab->runtime_services->reset_system(EfiResetShutdown, 0, 0, NULL);
-    }
+    // // Is EFI boot?
+    // if (mb2_is_efi_boot) {
+    //     EFI_SYSTEM_TABLE* systab = efi_system_table;
+    //     systab->runtime_services->reset_system(EfiResetShutdown, 0, 0, NULL);
+    // }
 
     // Check if the ACPI is available
     
@@ -290,11 +290,11 @@ void acpi_restart()
     // Önce ACPI 2.0+ FADT ResetReg varsa onu kullan, sonra chipset reset portu (0xCF9),
     // en sonda 8042 klavye denetleyicisi ile reset dene.
 
-    if (mb2_is_efi_boot)
-    {
-        EFI_SYSTEM_TABLE* systab = efi_system_table;
-        systab->runtime_services->reset_system(EfiResetWarm, 0,0, NULL);
-    }
+    // if (mb2_is_efi_boot)
+    // {
+    //     EFI_SYSTEM_TABLE* systab = efi_system_table;
+    //     systab->runtime_services->reset_system(EfiResetWarm, 0,0, NULL);
+    // }
 
     const acpi_fadt_unified* fadt = (const acpi_fadt_unified*)acpi_get_fadt();
     if (fadt) {

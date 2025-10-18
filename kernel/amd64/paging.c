@@ -96,13 +96,13 @@ bool arch_paging_pat_init(void)
 	}
 
 	uint64_t pat = rdmsr(IA32_PAT_MSR);
-	pat = pat_set_entry(pat, 0, 0x04); // WB
-	pat = pat_set_entry(pat, 1, 0x06); // WT
-	pat = pat_set_entry(pat, 2, 0x02); // UC-
+	pat = pat_set_entry(pat, 0, 0x06); // WB
+	pat = pat_set_entry(pat, 1, 0x04); // WT
+	pat = pat_set_entry(pat, 2, 0x07); // UC-
 	pat = pat_set_entry(pat, 3, 0x00); // UC
 	pat = pat_set_entry(pat, 4, 0x01); // WC (used via PAT bit)
 	pat = pat_set_entry(pat, 5, 0x05); // WP (PAT|PWT)
-	pat = pat_set_entry(pat, 6, 0x02); // UC-
+	pat = pat_set_entry(pat, 6, 0x07); // UC- (spare slot)
 	pat = pat_set_entry(pat, 7, 0x00); // UC
 	wrmsr(IA32_PAT_MSR, pat);
 

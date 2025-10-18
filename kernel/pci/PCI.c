@@ -2,7 +2,10 @@
 #include <arch.h>
 #include <memory/memory.h>
 #include <memory/heap.h>
+#include <memory/mmio.h>
 #include <debug/debug.h>
+#include <stddef.h>
+#include <limits.h>
 
 #define BDF_FMT "%02x:%02x.%u"
 
@@ -10,6 +13,16 @@ static List* g_pciDevices = NULL;
 static uint32_t g_epoch = 0;
 // Next bus number to assign when encountering unconfigured PCI-to-PCI bridges
 static uint8_t g_nextBus = 1;
+
+#define PCI_MAX_TRACKED_MMIO 256
+
+typedef struct {
+	uintptr_t base;
+	size_t length;
+} pci_mmio_region_t;
+
+static pci_mmio_region_t g_pci_mmio_regions[PCI_MAX_TRACKED_MMIO];
+static size_t g_pci_mmio_region_count = 0;
 
 static inline uint32_t pci_make_config_address(uint8_t bus, uint8_t dev, uint8_t func, uint8_t offset)
 {
@@ -90,6 +103,82 @@ static void pci_remove_not_seen(void)
 	}
 }
 
+static bool pci_mmio_is_tracked(uintptr_t base, size_t length)
+{
+	for (size_t i = 0; i < g_pci_mmio_region_count; ++i) {
+		if (g_pci_mmio_regions[i].base == base && g_pci_mmio_regions[i].length == length) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static void pci_mmio_track(uintptr_t base, size_t length)
+{
+	for (size_t i = 0; i < g_pci_mmio_region_count; ++i) {
+		if (g_pci_mmio_regions[i].base == base) {
+			g_pci_mmio_regions[i].length = length;
+			return;
+		}
+	}
+	if (g_pci_mmio_region_count >= PCI_MAX_TRACKED_MMIO) {
+		return;
+	}
+	g_pci_mmio_regions[g_pci_mmio_region_count].base = base;
+	g_pci_mmio_regions[g_pci_mmio_region_count].length = length;
+	g_pci_mmio_region_count++;
+}
+
+static uint64_t pci_probe_bar_size(uint8_t bus, uint8_t dev, uint8_t func, uint8_t offset, bool isIO, bool is64)
+{
+	uint32_t originalLow = PCI_ConfigRead32(bus, dev, func, offset);
+	uint32_t originalHigh = 0;
+
+	if (is64) {
+		originalHigh = PCI_ConfigRead32(bus, dev, func, offset + 4);
+	}
+
+	PCI_ConfigWrite32(bus, dev, func, offset, 0xFFFFFFFFu);
+	if (is64) {
+		PCI_ConfigWrite32(bus, dev, func, offset + 4, 0xFFFFFFFFu);
+	}
+
+	uint32_t sizeLow = PCI_ConfigRead32(bus, dev, func, offset);
+	uint32_t sizeHigh = 0;
+	if (is64) {
+		sizeHigh = PCI_ConfigRead32(bus, dev, func, offset + 4);
+	}
+
+	PCI_ConfigWrite32(bus, dev, func, offset, originalLow);
+	if (is64) {
+		PCI_ConfigWrite32(bus, dev, func, offset + 4, originalHigh);
+	}
+
+	if (isIO) {
+		uint32_t masked = sizeLow & 0xFFFFFFFCu;
+		if (masked == 0) {
+			return 0;
+		}
+		uint32_t size32 = (~masked + 1u);
+		return (uint64_t)size32;
+	}
+
+	uint32_t maskedLow = sizeLow & 0xFFFFFFF0u;
+	if (is64) {
+		uint64_t mask = ((uint64_t)sizeHigh << 32) | (uint64_t)maskedLow;
+		if (mask == 0) {
+			return 0;
+		}
+		return (~mask + 1ull);
+	} else {
+		if (maskedLow == 0) {
+			return 0;
+		}
+		uint32_t size32 = (~maskedLow + 1u);
+		return (uint64_t)size32;
+	}
+}
+
 static void pci_parse_bars(PCIDevice* dev)
 {
 	dev->barCount = 0;
@@ -111,6 +200,7 @@ static void pci_parse_bars(PCIDevice* dev)
 			b->isIO = true;
 			b->address = (uint16_t)(barVal & ~0x3u);
 			// nothing else to skip; i will be incremented by loop
+			b->size = pci_probe_bar_size(dev->bus, dev->device, dev->function, off, true, false);
 		} else {
 			// Memory space BAR
 			uint32_t typeBits = (barVal >> 1) & 0x3;
@@ -121,9 +211,11 @@ static void pci_parse_bars(PCIDevice* dev)
 				uint32_t high = PCI_ConfigRead32(dev->bus, dev->device, dev->function, off + 4);
 				b->address = ((uint64_t)high << 32) | low;
 				b->is64 = true;
+				b->size = pci_probe_bar_size(dev->bus, dev->device, dev->function, off, false, true);
 				++i; // skip the next BAR slot
 			} else {
 				b->address = (uint32_t)(barVal & ~0xFu);
+				b->size = pci_probe_bar_size(dev->bus, dev->device, dev->function, off, false, false);
 			}
 		}
 		dev->barCount++;
@@ -271,6 +363,43 @@ void PCI_Rescan(bool enableBridges)
 	g_nextBus = 1;
 	pci_scan_bus(0, enableBridges);
 	pci_remove_not_seen();
+	PCI_ConfigureMMIORegions();
+}
+
+void PCI_ConfigureMMIORegions(void)
+{
+	if (!g_pciDevices) return;
+
+	LIST_FOR_EACH(g_pciDevices, it) {
+		PCIDevice* dev = (PCIDevice*)it->data;
+		if (!dev) continue;
+		for (uint8_t idx = 0; idx < dev->barCount && idx < 6; ++idx) {
+			PCIBAR* bar = &dev->bars[idx];
+			if (bar->isIO) continue;
+			if (bar->address == 0 || bar->size == 0) continue;
+			if (bar->address > (uint64_t)UINTPTR_MAX) {
+				WARN("PCI: BAR%u of " BDF_FMT " exceeds virtual address space (base=0x%llx)",
+				     idx, dev->bus, dev->device, dev->function, (unsigned long long)bar->address);
+				continue;
+			}
+			if (bar->size > (uint64_t)SIZE_MAX) {
+				WARN("PCI: BAR%u of " BDF_FMT " is too large to map (size=0x%llx)",
+				     idx, dev->bus, dev->device, dev->function, (unsigned long long)bar->size);
+				continue;
+			}
+			uintptr_t base = (uintptr_t)bar->address;
+			size_t length = (size_t)bar->size;
+			if (pci_mmio_is_tracked(base, length)) {
+				continue;
+			}
+			if (!mmio_configure_region(base, length)) {
+				WARN("PCI: Failed to configure MMIO for " BDF_FMT " BAR%u (base=%p size=0x%zx)",
+				     dev->bus, dev->device, dev->function, idx, (void*)base, length);
+			} else {
+				pci_mmio_track(base, length);
+			}
+		}
+	}
 }
 
 PCIDevice* PCI_FindByBDF(uint8_t bus, uint8_t device, uint8_t function)
