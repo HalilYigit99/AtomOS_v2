@@ -7,6 +7,7 @@
 #include <irq/IRQ.h>
 #include <task/PeriodicTask.h>
 #include <efi/efi.h>
+#include <debug/uart.h>
 #include <pci/PCI.h>
 #include <memory/memory.h>
 #include <gfxterm/gfxterm.h>
@@ -66,7 +67,6 @@ void __boot_kernel_start(void)
     heap_init();
 
     gds_addStream(&journald_debugStream);
-    gds_addStream(&uartDebugStream);
 
     debugStream->Open();
     currentOutputStream->Open();
@@ -92,6 +92,12 @@ void __boot_kernel_start(void)
     acpi_init();
     LOG("ACPI initialized");
 
+    if (mb2_framebuffer->framebuffer_addr > 0xFFFFFFFF)
+    {
+        ERROR("Framebuffer address is above 4GB limit, cannot continue");
+        acpi_poweroff();
+    }
+
     void* large_alloc = malloc(1024 * 1024 * 10); // 10 MB test
     if (large_alloc)
     {
@@ -106,6 +112,14 @@ void __boot_kernel_start(void)
 
     PCI_Init();
     LOG("PCI bus initialized");
+
+    uartDebugStream.Open();
+
+    uartDebugStream.print(journald_getBuffer());
+
+    gds_addStream(&uartDebugStream);
+
+    uart_refresh_devices();
 
     // APIC varsa onu kullan, yoksa PIC'e düş
     if (apic_supported())

@@ -320,6 +320,8 @@ void i386_processor_exceptions_handle(uint8_t exceptionNumber,
                                       bool has_error_code)
 {
 
+    acpi_restart();
+
     const char* exceptionName = get_exception_name(exceptionNumber);
     exception_output_ctx_t out = exception_prepare_output();
 
@@ -565,8 +567,6 @@ void i386_processor_exceptions_handle(uint8_t exceptionNumber,
     }
 
     WARN("CPU exception: vector=%u (%s)", exceptionNumber, exceptionName);
-
-    acpi_restart();
 
     ASSERT(isError(exceptionNumber) == false, "CPU EXCEPTION");
 }

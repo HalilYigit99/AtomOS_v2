@@ -27,6 +27,7 @@ extern "C" {
 #define ACPI_SIG_MCFG "MCFG"
 #define ACPI_SIG_DSDT "DSDT"
 #define ACPI_SIG_SSDT "SSDT"
+#define ACPI_SIG_SPCR "SPCR"
 
 /* ACPI 2.0+: Generic Address Structure (GAS) */
 typedef struct ACPI_PACKED acpi_gas {
